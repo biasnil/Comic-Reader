@@ -1,4 +1,5 @@
 """Small stateless helper functions shared by several modules."""
+import hashlib
 import io
 import os
 import re
@@ -10,7 +11,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageOps
 
-from ..constants import IMAGE_EXTS, NIGHT_B, NIGHT_G
+from ..constants import IMAGE_EXTS, NIGHT_B, NIGHT_G, THUMB_EXT
 
 
 # ---- file names / metadata -------------------------------------------------- #
@@ -49,6 +50,32 @@ def parse_comicinfo(data: bytes) -> dict:
             "volume": g("Volume"), "writer": g("Writer"), "summary": g("Summary"),
             "manga": g("Manga"), "genre": g("Genre"), "pages": g("PageCount")}
     return {k: v for k, v in info.items() if v}
+
+
+_ORDER_PREFIX = re.compile(r"^\s*\d+\s*[.\-_)]\s*")
+
+
+def strip_order_prefix(name: str) -> str:
+    """'1. Absolute Series' -> 'Absolute Series' (folders are often numbered to control order)."""
+    return _ORDER_PREFIX.sub("", name).strip() or name
+
+
+def folder_title(path) -> str:
+    """Tile name for a library folder: '<parent> - <folder>', numbering removed.
+
+    D:\\Comic\\DC\\1. Absolute Series  ->  'DC - Absolute Series'
+    """
+    p = Path(path)
+    if not p.name:  # a drive root such as D:\\
+        return str(p)
+    parent = strip_order_prefix(p.parent.name) if p.parent != p and p.parent.name else ""
+    name = strip_order_prefix(p.name)
+    return f"{parent} - {name}" if parent else name
+
+
+def thumb_name(path) -> str:
+    """Cover file name in AppData: first 16 hex chars of the SHA-1 of the comic's path."""
+    return hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:16] + THUMB_EXT
 
 
 # ---- images ------------------------------------------------------------------ #

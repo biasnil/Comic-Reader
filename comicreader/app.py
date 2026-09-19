@@ -11,7 +11,7 @@ Components (package/module):
   MouseController           ui/controls.py
   DropTarget                ui/dragdrop.py
   ThemeManager              ui/theme.py          themes and UI scale
-  LibraryManager            library/manager.py   library database, scanning and window
+  LibraryManager            library/manager.py   library database, scanning and the library page
 """
 import json
 import textwrap
@@ -24,7 +24,7 @@ from PIL import Image
 from .constants import APP_NAME, COMIC_EXTS, ICON_FILE, IMAGE_EXTS
 from .ui.controls import MouseController
 from .ui.dragdrop import HAS_DND, BaseTk, DropTarget
-from .utils.helpers import apply_filter, human_size, natural_key
+from .utils.helpers import apply_filter, human_size, key_string, natural_key
 from .core.keybindings import KeyBindings
 from .library.manager import LibraryManager
 from .ui.menubar import MenuBar
@@ -37,6 +37,9 @@ from .ui.widgets import ProgressBar
 
 
 class ComicReader(BaseTk):
+    # keys that still work while the library (not the reader) is on screen
+    LIBRARY_KEYS = ("open_file", "open_folder", "library", "fullscreen")
+
     def __init__(self, initial: str | None = None):
         super().__init__()
         self.title(APP_NAME)
@@ -82,10 +85,12 @@ class ComicReader(BaseTk):
         self._end_armed = False
         self._resize_job = None
         self.view = None
+        self._in_library = False  # which page is on screen: the library (home) or the reader
 
         # ---- UI ---- #
         self._register_actions()
         self._build_ui()
+        self.library_view = self.library.build_view(self)
         self.paged = PagedView(self)
         self.webtoon = WebtoonView(self)
         self.view = self.paged
@@ -108,10 +113,47 @@ class ComicReader(BaseTk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         if initial:
             self.after(200, lambda: self.open_many([Path(initial)]))
+        else:
+            self.show_library()  # the library is the home screen
+        self.after(500, self.library.startup_scan)
 
     @property
     def colors(self) -> dict:
         return self.themer.colors
+
+    @property
+    def in_library(self) -> bool:
+        return self._in_library
+
+    # ------------------------------------------------------------------------------------ #
+    # Library <-> reader
+    # ------------------------------------------------------------------------------------ #
+    def show_library(self):
+        if self._in_library:
+            return
+        self.stats.tick(self.session.key)   # reading time stops while we browse
+        self._remember_position()
+        self._in_library = True
+        self.reader_page.pack_forget()
+        self.library_view.pack(fill="both", expand=True)
+        self.title(f"Library - {APP_NAME}")
+        self.library_view.on_show()
+
+    def show_reader(self):
+        if not self._in_library or not self.session.is_open:
+            return
+        self._in_library = False
+        self.library_view.pack_forget()
+        self.reader_page.pack(fill="both", expand=True)
+        self.stats.tick("")                 # restart the clock without crediting the time away
+        self._update_status()
+        self.canvas.focus_set()
+
+    def toggle_library(self):
+        if self._in_library:
+            self.show_reader()
+        else:
+            self.show_library()
 
     # ------------------------------------------------------------------------------------ #
     # Construction
@@ -120,7 +162,7 @@ class ComicReader(BaseTk):
         add = self.keys.register
         add("open_file", "Open file…", self.ask_open_file, ["Control-o"])
         add("open_folder", "Open folder…", self.ask_open_folder, ["Control-Shift-o"])
-        add("library", "Open library", self.library.open_window, ["Control-l"])
+        add("library", "Library / back to reader", self.toggle_library, ["Control-l"])
         add("info", "Comic properties", self.show_info, ["Control-i"])
         add("go_right", "Right: next page (previous in RTL)", self.go_right, ["Right"])
         add("go_left", "Left: previous page (next in RTL)", self.go_left, ["Left"])
@@ -157,8 +199,11 @@ class ComicReader(BaseTk):
         add("favorite", "Favourite this comic", self.toggle_favorite, ["Control-d"])
 
     def _build_ui(self):
-        self.progress = ProgressBar(self, on_jump=self._jump_from_bar)
-        self.main_frame = ttk.Frame(self)
+        # the reader is one page of the window (the library is the other)
+        self.reader_page = ttk.Frame(self)
+        self.reader_page.pack(fill="both", expand=True)
+        self.progress = ProgressBar(self.reader_page, on_jump=self._jump_from_bar)
+        self.main_frame = ttk.Frame(self.reader_page)
         self.main_frame.pack(fill="both", expand=True)
         self.main_frame.rowconfigure(0, weight=1)
         self.main_frame.columnconfigure(0, weight=1)
@@ -192,6 +237,18 @@ class ComicReader(BaseTk):
             w = None
         if isinstance(w, (tk.Entry, ttk.Entry, ttk.Combobox, tk.Text)):
             return  # typing in the page box shouldn't trigger shortcuts
+        if self._in_library:  # reading keys must not act on the hidden reader
+            name = self.keys.lookup(key_string(event))
+            if name in self.LIBRARY_KEYS:
+                self.keys.actions[name].callback()
+                return "break"
+            if name == "exit_fullscreen":  # Esc: leave fullscreen, else back into the open comic
+                if self.attributes("-fullscreen"):
+                    self.attributes("-fullscreen", False)
+                else:
+                    self.show_reader()
+                return "break"
+            return
         if self.keys.dispatch(event):
             return "break"
 
@@ -288,6 +345,11 @@ class ComicReader(BaseTk):
             messagebox.showerror(APP_NAME, f"Could not open:\n{path}\n\n{exc}")
             return False
 
+        if self._in_library:  # coming from the library: time spent there isn't reading time
+            self._in_library = False
+            self.library_view.pack_forget()
+            self.reader_page.pack(fill="both", expand=True)
+            self.stats.tick("")
         self._leave_current()
         self.session.attach(src)
         self.queue.set(queue_items if queue_items is not None else [path], qpos)
@@ -504,10 +566,14 @@ class ComicReader(BaseTk):
         if flags:
             parts.append(" ".join(flags))
         self.progress.set_status("  |  ".join(parts))
-        self.title(f"{s.path.name} - {APP_NAME}")
+        if not self._in_library:
+            self.title(f"{s.path.name} - {APP_NAME}")
 
     def flash(self, message: str):
         """Show a short message in the status line, then go back to the normal status."""
+        if self._in_library:
+            self.library_view.set_status(message)
+            return
         self._update_status(message)
         self.progress.poke()
         self.after(1500, self._update_status)
@@ -576,7 +642,8 @@ class ComicReader(BaseTk):
 
     # ------------------------------------------------------------------------------------ #
     def on_close(self):
-        self.stats.tick(self.session.key)
+        if not self._in_library:
+            self.stats.tick(self.session.key)
         self._remember_position()
         self._save_percomic()
         self.store.settings.update({
@@ -585,7 +652,7 @@ class ComicReader(BaseTk):
             "brightness": self.brightness.get(), "ui_scale": self.ui_scale.get(),
             "wheel": self.wheel.get(), "dbl": self.dbl_action.get(),
             "autohide": self.autohide.get()})
-        self.library.close_window()
+        self.library.save_view_state()
         self.store.save()
         self.library.save()
         self.session.close()

@@ -7,7 +7,7 @@ from .dialogs import KeysDialog
 
 
 class MenuBar:
-    """Builds File / View / Go menus for the main window.
+    """Builds Library / File / View / Go menus for the main window.
 
     build() can be called again at any time (it is, after a key is rebound) so the
     accelerator text always matches the current key bindings.
@@ -19,6 +19,7 @@ class MenuBar:
     def build(self):
         a = self.app
         bar = tk.Menu(a)
+        bar.add_command(label="Library", command=a.show_library)
         bar.add_cascade(label="File", menu=self._file_menu(bar))
         bar.add_cascade(label="View", menu=self._view_menu(bar))
         bar.add_cascade(label="Go", menu=self._go_menu(bar))
@@ -41,6 +42,7 @@ class MenuBar:
         self._cmd(f, "library")
         f.add_command(label="Add Files to Library…", command=a.library.add_files)
         f.add_command(label="Add Folder to Library…", command=a.library.add_folder)
+        f.add_command(label="Rebuild Cover Cache…", command=a.library.rebuild_covers)
         f.add_separator()
         self._cmd(f, "info")
         f.add_command(label="Reading Statistics…", command=a.show_stats)

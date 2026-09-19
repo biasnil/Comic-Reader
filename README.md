@@ -2,8 +2,9 @@
 
 A desktop comic and manga reader written in Python with tkinter.
 
-It reads CBZ, CBR, CBT, CB7, PDF and plain folders of images, remembers where you stopped, and has a
-library view with covers, a continuous-scroll (webtoon) mode, bookmarks, themes and rebindable keys.
+It reads CBZ, CBR, CBT, CB7, PDF and plain folders of images, remembers where you stopped, and opens on
+a **library** of your comic folders with covers. It also has a continuous-scroll (webtoon) mode,
+bookmarks, themes and rebindable keys.
 
 ## Quick start
 
@@ -38,8 +39,9 @@ If the comic contains a `ComicInfo.xml`, its title, series, number, author and m
 
 ## Using it
 
-**Opening**: Ctrl+O (file), Ctrl+Shift+O (folder), File > Open Recent, the library (Ctrl+L), or drop
-files/folders on the window. Dropping several comics queues them: `[` and `]` switch between them, and
+**Opening**: the app starts on the library: pick a comic there. You can also use Ctrl+O (file),
+Ctrl+Shift+O (folder), File > Open Recent, or drop files/folders on the window. Ctrl+L, the Library
+menu or Esc goes back to the library, and "Continue" there returns to the comic you were reading. Dropping several comics queues them: `[` and `]` switch between them, and
 pressing "next" twice at the last page moves to the next comic.
 
 **Mouse**: click the left or right 30% of the window to turn the page, double-click the centre for
@@ -74,17 +76,26 @@ UI scale up to 200%, optional auto-hiding progress bar.
 | Ctrl+D               | favourite this comic                          |
 | [ / ]                | previous / next comic in the queue            |
 | Ctrl+O / Ctrl+Shift+O| open file / open folder                       |
-| Ctrl+L               | library                                       |
+| Ctrl+L               | library / back to the comic                   |
 | Ctrl+I               | comic properties                              |
 
 Every key can be changed under **File > Keyboard Shortcuts**.
 
 ### Library
 
-Ctrl+L opens the library. **Add Folder** scans a folder and its sub-folders in the background and builds
-cover thumbnails; unchanged files are skipped on later scans, so **Rescan** is quick. Grid or list view,
-search, sort (name, series, date added, last read) and filters (favourites, unread, in progress,
-finished). Right-click a comic to open it, favourite it, show it in Explorer or remove it.
+The library is the home screen (Ctrl+L or the Library menu returns to it). **Add Folder** adds a root folder (you can add as many as you like); it
+shows up as one tile named after its parent and itself with the numbering removed, e.g.
+`D:\Comics\DC\1. Absolute Series` becomes **DC - Absolute Series**. Open a tile to see its
+sub-folders and comics, keep going deeper, and open a comic to read it. **Up**, Backspace or Alt+Left
+goes back a level; the breadcrumb shows where you are. The library remembers the folder you were in.
+
+Opening a comic queues the other comics in that folder, so `]` and `[` move to the next and previous
+one. Folders are scanned in the background when the app starts, so new comics appear by themselves;
+**Rescan** does it on demand. Grid or list view, search, sort (name, series, date added, last read) and
+filters (favourites, unread, in progress, finished). Searching or filtering shows matching comics from
+the folder you are in and everything below it. Right-click a comic to open it, favourite it, show it in
+Explorer or remove it; right-click a root folder to remove it from the library (files on disk are never
+touched). **File > Rebuild Cover Cache** redraws every cover.
 
 ## Where your data lives
 
@@ -93,10 +104,14 @@ Everything is stored in `%USERPROFILE%\.comic_reader\`:
 | File            | Contents                                                             |
 |-----------------|----------------------------------------------------------------------|
 | `state.json`    | last page per comic, bookmarks, favourites, settings, key bindings, statistics |
-| `library.json`  | the scanned library                                                  |
-| `thumbs\`       | cover thumbnails                                                     |
+| `library.json`  | the root folders and the scanned comics                              |
 
-Delete the folder to reset everything. Use **File > Export Progress / Import Progress** to move your
+Cover thumbnails are kept separately in `%APPDATA%\ComicReader\thumbnails\` as `<id>.thumbnail`
+files (JPEG, 300x450, named from a SHA-1 of the comic's path). They are rebuilt automatically if
+missing, deleted when a comic or folder is removed, and covers from older versions
+(`.comic_reader\thumbs`) are moved over on first start; you can delete that old folder afterwards.
+
+Delete the `.comic_reader` folder to reset everything. Use **File > Export Progress / Import Progress** to move your
 progress to another computer. An old v1 `~\.comic_reader.json` is picked up automatically.
 
 ## Project layout
@@ -110,7 +125,7 @@ assets/
     icon.ico            app icon (exe + window)
     icon.png
 comicreader/
-    app.py              main window (ComicReader): wires everything together
+    app.py              main window (ComicReader): library and reader pages, wires everything together
     constants.py        file types, storage paths, asset paths, themes
     core/               no GUI code
         sources.py        one class per format + SourceFactory
@@ -123,7 +138,7 @@ comicreader/
     library/
         scanner.py        builds records + covers, scans folders in a thread
         manager.py        LibraryManager
-        window.py         the library window
+        window.py         the library page (LibraryView)
     utils/
         helpers.py        small stateless helpers
 ```

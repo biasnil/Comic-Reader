@@ -1,9 +1,12 @@
 """Persistent data: reading state (small, saved often) and the library index (bigger)."""
 import json
+import os
+import shutil
 import time
 from pathlib import Path
 
-from ..constants import LIBRARY_FILE, OLD_STATE_FILE, STATE_FILE
+from ..constants import LIBRARY_FILE, OLD_STATE_FILE, OLD_THUMB_DIR, STATE_FILE, THUMB_DIR, THUMB_EXT
+from ..utils.helpers import folder_title, natural_key, thumb_name
 
 
 class JsonFile:
@@ -168,25 +171,125 @@ class Store:
 
 
 class LibraryDB:
-    """The scanned library: folders being watched plus one record per comic."""
+    """The scanned library: the root folders you added plus one record per comic.
+
+    Records are keyed by the comic's full path. The folder tree you browse in the library
+    window is not stored: it is worked out from those paths (see browse()).
+    """
 
     def __init__(self):
         self._file = JsonFile(LIBRARY_FILE)
         d = self._file.load({})
-        self.folders: list[str] = list(d.get("folders", []))
+        self.folders: list[str] = list(d.get("folders", []))  # root folders, as added
         self.items: dict[str, dict] = dict(d.get("items", {}))
+        if self._migrate_thumbs():
+            self.save()
 
     def save(self):
         self._file.save({"folders": self.folders, "items": self.items})
 
+    def _migrate_thumbs(self) -> bool:
+        """Older versions kept md5-named .jpg covers in ~/.comic_reader/thumbs; copy them to AppData."""
+        changed = False
+        for key, it in self.items.items():
+            old_name = it.get("thumb") or ""
+            if old_name.endswith(THUMB_EXT):
+                continue
+            new_name = ""
+            old = OLD_THUMB_DIR / old_name if old_name else None
+            if old is not None and old.exists():
+                try:
+                    THUMB_DIR.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(old, THUMB_DIR / thumb_name(key))
+                    new_name = thumb_name(key)
+                except OSError:
+                    pass
+            if it.get("thumb", "") != new_name:
+                it["thumb"] = new_name  # "" -> the next scan rebuilds this cover
+                changed = True
+        return changed
+
     def signatures(self) -> dict:
-        """path -> [mtime, size], used to skip files that haven't changed since the last scan."""
-        return {k: v.get("sig") for k, v in self.items.items()}
+        """path -> [mtime, size] for the scanner to skip unchanged files.
+
+        A comic whose cover file is missing gets None, so the next scan rebuilds it.
+        """
+        out = {}
+        for k, v in self.items.items():
+            thumb = v.get("thumb")
+            out[k] = v.get("sig") if thumb and (THUMB_DIR / thumb).exists() else None
+        return out
+
+    # ---- folders ------------------------------------------------------------------ #
+    @staticmethod
+    def _prefix(folder: str) -> str:
+        return folder.rstrip(os.sep) + os.sep
 
     def add_folder(self, folder: str):
         if folder not in self.folders:
             self.folders.append(folder)
 
+    def has_folder(self, folder: str) -> bool:
+        pre = self._prefix(folder)
+        return folder in self.folders or any(k.startswith(pre) for k in self.items)
+
+    def keys_under(self, folder: str | None = None) -> list[str]:
+        """Every comic below `folder` (any depth); None means the whole library."""
+        if folder is None:
+            return list(self.items)
+        pre = self._prefix(folder)
+        return [k for k in self.items if k.startswith(pre)]
+
+    def loose_files(self) -> list[str]:
+        """Comics that were added one by one and are not inside any root folder."""
+        pres = [self._prefix(r) for r in self.folders]
+        return [k for k in self.items if not any(k.startswith(p) for p in pres)]
+
+    def browse(self, folder: str | None):
+        """What one level of the library shows.
+
+        Returns (subfolders, comics). subfolders is a list of (path, title, comic_keys) where
+        comic_keys are all comics anywhere below it; comics are the files directly in `folder`.
+        folder=None is the top level: one tile per root folder, plus any loose comics.
+        """
+        if folder is None:
+            roots = sorted(self.folders, key=lambda r: natural_key(folder_title(r)))
+            pres = [(r, self._prefix(r)) for r in roots]
+            buckets: dict[str, list[str]] = {r: [] for r in roots}
+            loose = []
+            for k in self.items:
+                hit = False
+                for r, pre in pres:
+                    if k.startswith(pre):
+                        buckets[r].append(k)
+                        hit = True
+                if not hit:
+                    loose.append(k)
+            return [(r, folder_title(r), buckets[r]) for r in roots], loose
+        pre = self._prefix(folder)
+        groups: dict[str, list[str]] = {}
+        comics = []
+        for k in self.items:
+            if k.startswith(pre):
+                head, sep, _ = k[len(pre):].partition(os.sep)
+                if sep:
+                    groups.setdefault(head, []).append(k)
+                else:
+                    comics.append(k)
+        subs = [(pre + name, name, keys)
+                for name, keys in sorted(groups.items(), key=lambda kv: natural_key(kv[0]))]
+        return subs, comics
+
+    def remove_folder(self, folder: str) -> int:
+        """Forget a root folder and its comics (and their covers). Files on disk are untouched."""
+        keys = self.keys_under(folder)
+        for k in keys:
+            self.remove(k)
+        if folder in self.folders:
+            self.folders.remove(folder)
+        return len(keys)
+
+    # ---- comics ------------------------------------------------------------------- #
     def merge(self, key: str, item: dict):
         old = self.items.get(key)
         if old:  # a rescan must not reset the "date added"
@@ -194,4 +297,9 @@ class LibraryDB:
         self.items[key] = item
 
     def remove(self, key: str):
-        self.items.pop(key, None)
+        it = self.items.pop(key, None)
+        if it and it.get("thumb"):
+            try:
+                (THUMB_DIR / it["thumb"]).unlink()
+            except OSError:
+                pass

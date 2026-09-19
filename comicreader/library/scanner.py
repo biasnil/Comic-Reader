@@ -1,20 +1,31 @@
 """Building library records from comic files, and scanning folders off the UI thread."""
-import hashlib
 import os
 import queue
 import threading
 import time
 from pathlib import Path
 
-from ..constants import COMIC_EXTS, RESAMPLE, THUMB_DIR
+from ..constants import COMIC_EXTS, RESAMPLE, THUMB_DIR, THUMB_QUALITY, THUMB_SIZE
 from ..core.sources import SourceFactory
-from ..utils.helpers import natural_key
+from ..utils.helpers import natural_key, thumb_name
 
 
 class LibraryItemBuilder:
-    """Opens one comic, reads its metadata and writes a cover thumbnail."""
+    """Opens one comic, reads its metadata and writes its cover to AppData as <id>.thumbnail."""
 
-    THUMB_SIZE = (300, 440)
+    @staticmethod
+    def pick_cover(names) -> int:
+        """Index of the cover page: cover.*, then folder.*, then any name containing 'cover',
+        otherwise the first page."""
+        stems = [Path(n.replace("\\", "/")).stem.lower() for n in names]
+        for wanted in ("cover", "folder"):
+            for i, stem in enumerate(stems):
+                if stem == wanted:
+                    return i
+        for i, n in enumerate(names):
+            if "cover" in n.lower():
+                return i
+        return 0
 
     @classmethod
     def build(cls, path: Path) -> dict:
@@ -22,12 +33,11 @@ class LibraryItemBuilder:
         src, _ = SourceFactory.open(path, interactive=False)  # raises if there are no pages
         try:
             meta = src.read_meta()
-            idx = next((i for i, n in enumerate(src.names) if "cover" in n.lower()), 0)
-            img = src.load(idx)
-            img.thumbnail(cls.THUMB_SIZE, RESAMPLE)
+            img = src.load(cls.pick_cover(src.names))
+            img.thumbnail(THUMB_SIZE, RESAMPLE)
             THUMB_DIR.mkdir(parents=True, exist_ok=True)
-            thumb = hashlib.md5(str(path).encode("utf-8")).hexdigest() + ".jpg"
-            img.convert("RGB").save(THUMB_DIR / thumb, quality=85)
+            thumb = thumb_name(path)
+            img.convert("RGB").save(THUMB_DIR / thumb, format="JPEG", quality=THUMB_QUALITY)
             series = meta.get("series", "")
             number = meta.get("number") or meta.get("volume", "")
             title = meta.get("title") or (f"{series} #{number}" if series and number else path.stem)

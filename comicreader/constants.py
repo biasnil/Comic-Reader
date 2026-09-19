@@ -1,4 +1,5 @@
 """Shared constants: file types, storage locations, themes."""
+import os
 import sys
 from pathlib import Path
 
@@ -18,7 +19,25 @@ DATA_DIR = Path.home() / ".comic_reader"
 STATE_FILE = DATA_DIR / "state.json"
 OLD_STATE_FILE = Path.home() / ".comic_reader.json"  # v1 file, migrated automatically
 LIBRARY_FILE = DATA_DIR / "library.json"
-THUMB_DIR = DATA_DIR / "thumbs"
+
+
+def _appdata_dir() -> Path:
+    """%APPDATA%\\ComicReader on Windows, the platform's usual app-data folder elsewhere."""
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return base / "ComicReader"
+
+
+APPDATA_DIR = _appdata_dir()
+THUMB_DIR = APPDATA_DIR / "thumbnails"        # cover images: <sha1 of path>.thumbnail
+OLD_THUMB_DIR = DATA_DIR / "thumbs"           # where older versions kept covers (migrated)
+THUMB_EXT = ".thumbnail"
+THUMB_SIZE = (300, 450)
+THUMB_QUALITY = 80
 
 RESAMPLE = Image.Resampling.LANCZOS
 FAST = Image.Resampling.BILINEAR

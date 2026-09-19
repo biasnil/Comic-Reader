@@ -32,6 +32,8 @@ class MouseController:
 
     def on_wheel(self, event):
         a = self.app
+        if a.in_library:  # the library scrolls itself; don't flip/zoom the hidden page
+            return
         num = getattr(event, "num", 0)
         delta = 1 if num == 4 else -1 if num == 5 else (1 if event.delta > 0 else -1)
         if event.state & 0x4:  # Ctrl always zooms
