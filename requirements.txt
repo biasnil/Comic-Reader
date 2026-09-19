@@ -1,0 +1,5 @@
+pillow          # required
+pymupdf         # PDF
+rarfile         # CBR/RAR (also needs WinRAR or 7-Zip installed)
+py7zr           # CB7/7z
+tkinterdnd2     # drag & drop
