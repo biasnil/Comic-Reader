@@ -14,6 +14,8 @@ if not exist ".venv\Scripts\python.exe" (
 )
 set "PY=.venv\Scripts\python.exe"
 
+if not exist "assets\icon.ico" echo WARNING: assets\icon.ico not found - the exe will use the default icon.
+
 "%PY%" -m pip install --upgrade pip || goto :error
 "%PY%" -m pip install -r requirements.txt pyinstaller || goto :error
 "%PY%" -m PyInstaller --noconfirm --clean ComicReader.spec || goto :error

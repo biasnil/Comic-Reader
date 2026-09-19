@@ -21,7 +21,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from PIL import Image
 
-from .constants import APP_NAME, COMIC_EXTS, IMAGE_EXTS
+from .constants import APP_NAME, COMIC_EXTS, ICON_FILE, IMAGE_EXTS
 from .ui.controls import MouseController
 from .ui.dragdrop import HAS_DND, BaseTk, DropTarget
 from .utils.helpers import apply_filter, human_size, natural_key
@@ -42,6 +42,11 @@ class ComicReader(BaseTk):
         self.title(APP_NAME)
         self.geometry("1150x820")
         self.minsize(640, 440)
+        if ICON_FILE.exists():
+            try:
+                self.iconbitmap(default=str(ICON_FILE))  # also used by dialogs and the library window
+            except tk.TclError:
+                pass  # non-Windows: keep the default icon
 
         # ---- model / services ---- #
         self.store = Store()

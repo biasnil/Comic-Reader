@@ -8,6 +8,7 @@ Install:  pip install pillow pymupdf rarfile py7zr tkinterdnd2
 
 Layout:
     main.py                  <- you are here
+    assets/                  icon.ico (exe + window icon), icon.png
     comicreader/
         app.py               main window (ComicReader)
         constants.py         file types, storage paths, themes
@@ -27,6 +28,8 @@ def main():
         try:
             from ctypes import windll
             windll.shcore.SetProcessDpiAwareness(1)
+            # own taskbar identity, so the taskbar shows our icon instead of Python's
+            windll.shell32.SetCurrentProcessExplicitAppUserModelID("ComicReader.App")
         except Exception:
             pass
     initial = sys.argv[1] if len(sys.argv) > 1 else None

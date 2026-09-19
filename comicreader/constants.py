@@ -1,9 +1,15 @@
 """Shared constants: file types, storage locations, themes."""
+import sys
 from pathlib import Path
 
 from PIL import Image
 
 APP_NAME = "Comic Reader"
+
+# Project root when running from source, or PyInstaller's unpack folder inside the built exe
+BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+ASSETS_DIR = BASE_DIR / "assets"
+ICON_FILE = ASSETS_DIR / "icon.ico"
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff"}
 COMIC_EXTS = {".cbz", ".cbr", ".cbt", ".cb7", ".cba", ".zip", ".rar", ".tar", ".7z", ".pdf"}

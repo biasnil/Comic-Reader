@@ -104,10 +104,14 @@ progress to another computer. An old v1 `~\.comic_reader.json` is picked up auto
 ```
 main.py                 starts the app
 requirements.txt
-build.ps1               builds a Windows .exe with PyInstaller
+build.bat               builds a Windows .exe with PyInstaller
+ComicReader.spec        PyInstaller recipe
+assets/
+    icon.ico            app icon (exe + window)
+    icon.png
 comicreader/
     app.py              main window (ComicReader): wires everything together
-    constants.py        file types, storage paths, themes
+    constants.py        file types, storage paths, asset paths, themes
     core/               no GUI code
         sources.py        one class per format + SourceFactory
         storage.py        Store (reading state) and LibraryDB
@@ -127,12 +131,13 @@ comicreader/
 ## Building an .exe
 
 ```powershell
-.\build.ps1             # folder build:  dist\ComicReader\ComicReader.exe
-.\build.ps1 -OneFile    # single file:   dist\ComicReader.exe (slower to start)
+.\build.bat             # folder build:  dist\ComicReader\ComicReader.exe
+.\build.bat onefile     # single file:   dist\ComicReader.exe (slower to start)
 ```
 
 The script creates `.venv` if needed, installs `requirements.txt` and PyInstaller, and runs PyInstaller.
-CBR still needs WinRAR or 7-Zip installed on the machine that runs the exe.
+The `assets\` folder is bundled into the build and `assets\icon.ico` becomes the exe icon; to change the
+icon, replace that file and rebuild. CBR still needs WinRAR or 7-Zip installed on the machine that runs the exe.
 
 ## Troubleshooting
 
