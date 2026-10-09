@@ -1,0 +1,6 @@
+# Manga Translator plugin (the reader itself doesn't need any of these)
+numpy
+onnxruntime          # text detection; on Windows, onnxruntime-directml instead uses the GPU
+anthropic            # only for the Anthropic (Claude) translator backend
+opencv-python-headless  # optional: better text removal on artwork (inpaint "auto")
+# manga-ocr          # optional, large (installs torch): local Japanese OCR instead of the LLM reading crops

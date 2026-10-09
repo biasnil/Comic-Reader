@@ -12,6 +12,7 @@ Components (package/module):
   DropTarget                ui/dragdrop.py
   ThemeManager              ui/theme.py          themes and UI scale
   LibraryManager            library/manager.py   library database, scanning and the library page
+  TranslatorController      plugins/controller.py  Manga Translator plugin (page translation)
 """
 import json
 import textwrap
@@ -27,6 +28,7 @@ from .ui.dragdrop import HAS_DND, BaseTk, DropTarget
 from .utils.helpers import apply_filter, human_size, key_string, natural_key
 from .core.keybindings import KeyBindings
 from .library.manager import LibraryManager
+from .plugins.controller import TranslatorController
 from .ui.menubar import MenuBar
 from .core.session import ComicQueue, ComicSession, PageCache, ReadingStats
 from .core.sources import EmptyComicError, SourceFactory
@@ -60,6 +62,7 @@ class ComicReader(BaseTk):
         self.stats = ReadingStats(self.store)
         self.cache = PageCache()
         self.library = LibraryManager(self)
+        self.translator = TranslatorController(self)
         SourceFactory.password_provider = lambda: simpledialog.askstring(
             APP_NAME, "This PDF is password protected:", show="*", parent=self)
 
@@ -197,6 +200,8 @@ class ComicReader(BaseTk):
             ["Escape"])
         add("bookmark", "Bookmark this page", self.toggle_bookmark, ["b"])
         add("favorite", "Favourite this comic", self.toggle_favorite, ["Control-d"])
+        add("translate", "Translate pages (Manga Translator)", self.translator.toggle, ["t"])
+        add("translate_all", "Translate whole comic", self.translator.translate_all, [])
 
     def _build_ui(self):
         # the reader is one page of the window (the library is the other)
@@ -274,7 +279,8 @@ class ComicReader(BaseTk):
     # View plumbing used by the views
     # ------------------------------------------------------------------------------------ #
     def get_image(self, index: int) -> Image.Image:
-        return self.cache.get(index, self.session.source)
+        """The one place views get page images from (the translator swaps in translated pages)."""
+        return self.translator.image_for(index, self.cache.get(index, self.session.source))
 
     def style(self, img: Image.Image) -> Image.Image:
         return apply_filter(img, self.filter.get(), self.brightness.get())
@@ -354,6 +360,7 @@ class ComicReader(BaseTk):
         self.session.attach(src)
         self.queue.set(queue_items if queue_items is not None else [path], qpos)
         self.cache.clear()
+        self.translator.comic_opened()
         self.zoom, self.rotation = 1.0, 0
 
         key = self.session.key
@@ -563,6 +570,8 @@ class ComicReader(BaseTk):
             flags.append("★")
         if len(self.queue) > 1:
             flags.append(f"queue {self.queue.pos + 1}/{len(self.queue)}")
+        if self.translator.status_text():
+            flags.append(f"EN: {self.translator.status_text()}")
         if flags:
             parts.append(" ".join(flags))
         self.progress.set_status("  |  ".join(parts))
@@ -655,5 +664,6 @@ class ComicReader(BaseTk):
         self.library.save_view_state()
         self.store.save()
         self.library.save()
+        self.translator.shutdown()
         self.session.close()
         self.destroy()

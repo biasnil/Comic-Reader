@@ -6,6 +6,10 @@ It reads CBZ, CBR, CBT, CB7, PDF and plain folders of images, remembers where yo
 a **library** of your comic folders with covers. It also has a continuous-scroll (webtoon) mode,
 bookmarks, themes and rebindable keys.
 
+The optional **Manga Translator** plugin translates Japanese manga pages into English while you read
+(Koharu-style: detect the text, read it, erase it and draw the English in the bubble). See
+[Manga Translator plugin](#manga-translator-plugin).
+
 ## Quick start
 
 ```powershell
@@ -78,6 +82,7 @@ UI scale up to 200%, optional auto-hiding progress bar.
 | Ctrl+O / Ctrl+Shift+O| open file / open folder                       |
 | Ctrl+L               | library / back to the comic                   |
 | Ctrl+I               | comic properties                              |
+| T                    | translate pages on/off (Manga Translator plugin) |
 
 Every key can be changed under **File > Keyboard Shortcuts**.
 
@@ -97,6 +102,52 @@ the folder you are in and everything below it. Right-click a comic to open it, f
 Explorer or remove it; right-click a root folder to remove it from the library (files on disk are never
 touched). **File > Rebuild Cover Cache** redraws every cover.
 
+## Manga Translator plugin
+
+A plugin that translates Japanese manga into English page by page. It lives in this repository
+(`plugins/manga_translator/`) but runs as its own helper process, so the reader stays as small and fast as
+before. Without the plugin, the Translate menu doesn't appear.
+
+**Installing**
+- **Installer:** tick *Manga Translator plugin* in `ComicReader-Setup-<version>.exe`.
+- **From the reader:** **Plugins > Manage…** downloads the latest plugin from this repo's GitHub Releases,
+  checks its SHA-256 and installs it to `%USERPROFILE%\.comic_reader\plugins\manga-translator\`.
+  The same window updates or removes it.
+- **From source:** `pip install -r plugins/manga_translator/requirements.txt`. `python main.py` finds the plugin by itself.
+
+**Using it**: press **T** (or Translate > Translate Pages). The page on screen is translated first, then
+the pages after it; the status bar shows progress. **Translate Whole Comic** queues every page.
+Translations are saved, so re-opening a comic shows them instantly. **Retranslate This Page** and
+**Delete This Comic's Translations** redo them. On first use the plugin asks to download its text-detection
+model (95 MB, once).
+
+**Translator (Translate > Translation Settings…)**
+
+| Translator | Setup |
+|------------|-------|
+| Local, free (default) | Install [Ollama](https://ollama.com), run `ollama pull qwen2.5vl:7b`. Server URL `http://localhost:11434/v1`, model `qwen2.5vl:7b`. LM Studio works too (`http://localhost:1234/v1`). |
+| Claude | Choose *Anthropic (Claude)* and enter an API key (or set `ANTHROPIC_API_KEY`). Default model `claude-opus-5-5`. |
+| OpenAI or another hosted OpenAI-compatible API | Its URL, model name and API key. |
+
+All the text on a page goes to the model in one request, in reading order (right-to-left in manga mode),
+so it translates with context. By default the model reads the Japanese from an image of each bubble, so
+it must be a vision model. With `pip install manga-ocr` (large: it installs PyTorch) the text is read
+locally instead, and any text model works.
+
+**How a page is done**: comic-text-detector (ONNX) finds the text and a pixel mask of it. Then the text is
+read and translated, plain bubbles are filled with their background colour, text over artwork is
+inpainted (needs `opencv-python-headless`) or covered with a white box, and the English is word-wrapped
+and shrunk to fit the bubble in Comic Neue Bold. Rotation, filters and double-page spreads work on
+translated pages as usual.
+
+| Plugin package             | Enables                                   |
+|----------------------------|-------------------------------------------|
+| `numpy`, `onnxruntime`     | the plugin (required)                     |
+| `anthropic`                | the Claude translator                     |
+| `opencv-python-headless`   | erasing text drawn over artwork           |
+| `manga-ocr`                | local Japanese OCR (optional, large)      |
+| `onnxruntime-directml`     | GPU on Windows, instead of `onnxruntime` (`onnxruntime-gpu` for NVIDIA CUDA) |
+
 ## Where your data lives
 
 Everything is stored in `%USERPROFILE%\.comic_reader\`:
@@ -105,6 +156,9 @@ Everything is stored in `%USERPROFILE%\.comic_reader\`:
 |-----------------|----------------------------------------------------------------------|
 | `state.json`    | last page per comic, bookmarks, favourites, settings, key bindings, statistics |
 | `library.json`  | the root folders and the scanned comics                              |
+| `translations\` | translated pages: `<id>\0007.png` + `0007.json` (text, boxes) per comic |
+| `models\`       | the plugin's downloaded models                                        |
+| `plugins\`      | the plugin installed from Plugins > Manage, and its log file          |
 
 Cover thumbnails are kept separately in `%APPDATA%\ComicReader\thumbnails\` as `<id>.thumbnail`
 files (JPEG, 300x450, named from a SHA-1 of the comic's path). They are rebuilt automatically if
@@ -124,6 +178,8 @@ ComicReader.spec        PyInstaller recipe
 assets/
     icon.ico            app icon (exe + window)
     icon.png
+installer/ComicReader.iss   Inno Setup script for setup.exe
+.github/workflows/release.yml  builds the releases on GitHub (see Releases below)
 comicreader/
     app.py              main window (ComicReader): library and reader pages, wires everything together
     constants.py        file types, storage paths, asset paths, themes
@@ -132,6 +188,8 @@ comicreader/
         storage.py        Store (reading state) and LibraryDB
         session.py        ComicSession, ComicQueue, PageCache, ReadingStats
         keybindings.py    KeyBindings (rebindable actions)
+        translation.py    the plugin contract: messages, translation cache, paths
+    plugins/            reader side of the plugin: worker client, controller, installer, dialogs
     ui/
         views.py          PagedView (single/double) and WebtoonView
         menubar.py  widgets.py  controls.py  dialogs.py  dragdrop.py  theme.py
@@ -141,6 +199,10 @@ comicreader/
         window.py         the library page (LibraryView)
     utils/
         helpers.py        small stateless helpers
+plugins/manga_translator/   the Manga Translator plugin (its own process)
+    worker.py  pipeline.py  detector.py  ocr.py  inpaint.py  translator.py  typeset.py  models.py
+    MangaTranslator.spec  requirements.txt  assets/fonts/ (Comic Neue, OFL)
+docs/MANGA_TRANSLATOR_BRIEF.md
 ```
 
 ## Building an .exe
@@ -154,6 +216,30 @@ The script creates `.venv` if needed, installs `requirements.txt` and PyInstalle
 The `assets\` folder is bundled into the build and `assets\icon.ico` becomes the exe icon; to change the
 icon, replace that file and rebuild. CBR still needs WinRAR or 7-Zip installed on the machine that runs the exe.
 
+### Plugin, installer and releases
+
+```powershell
+.\build.bat plugin      # dist\manga-translator\manga-translator-worker.exe
+.\build.bat installer   # reader + plugin + dist\ComicReader-Setup-dev.exe (needs Inno Setup 6)
+```
+
+Set `VERSION` first (`set VERSION=1.3.0`) to name the installer. The installer has Start Menu and desktop
+shortcuts, an uninstaller, an optional Manga Translator component and optional file associations. It
+never touches your data in `.comic_reader`. It is not code-signed yet, so Windows SmartScreen asks
+"More info > Run anyway" the first time.
+
+**Releases are built on GitHub** (`.github/workflows/release.yml`, on Windows runners):
+
+| Push a tag          | The release gets                                                          |
+|---------------------|---------------------------------------------------------------------------|
+| `v1.3.0`            | `ComicReader-Setup-1.3.0.exe`, `ComicReader-1.3.0-win64.zip`, `MangaTranslator-plugin-win64.zip` + `.sha256` |
+| `translator-v0.2.0` | only the plugin zip + `.sha256`: an update that Plugins > Manage offers   |
+
+```powershell
+git tag v1.3.0
+git push origin v1.3.0
+```
+
 ## Troubleshooting
 
 - **"CBR/RAR support needs..."**: `pip install rarfile` and install WinRAR (or 7-Zip).
@@ -161,6 +247,14 @@ icon, replace that file and rebuild. CBR still needs WinRAR or 7-Zip installed o
 - **Drag & drop does nothing / a hint appears on the welcome screen**: `pip install tkinterdnd2`.
 - **A page shows "failed to load"**: that image is corrupt; the rest of the comic still works.
 - **Keys stop working after typing in the page box**: click the reading area (or press Enter in the box).
+- **Translation: "Can't reach http://localhost:11434…"**: start Ollama (or LM Studio's server), or pick another
+  translator under Translate > Translation Settings.
+- **Translation: bubbles come back empty or wrong**: the model must be able to read images (e.g. `qwen2.5vl`,
+  Claude), or install `manga-ocr` so the text is read locally.
+- **Translation is slow**: text detection runs on the CPU (several seconds a page). A GPU build of onnxruntime
+  (`onnxruntime-directml` / `onnxruntime-gpu`) speeds it up. Meanwhile, Translate Whole Comic works ahead in the background.
+- **The translator stopped unexpectedly**: details are in `.comic_reader\plugins\manga-translator.log`.
+- **Translation of a password-protected PDF**: not supported (the plugin opens the comic by itself).
 
 ## Known limitations
 
