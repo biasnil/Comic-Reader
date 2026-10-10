@@ -33,16 +33,29 @@ def sha256(path: Path) -> str:
 
 
 # ---- manga-ocr ----------------------------------------------------------------------- #
+def image_side(size) -> int:
+    """The model's input side from an image processor's `size`: an int, a dict, or (transformers 5)
+    a SizeDict object with .height / .shortest_edge attributes."""
+    if isinstance(size, (int, float)):
+        return int(size)
+    for key in ("height", "shortest_edge", "width"):
+        value = size.get(key) if isinstance(size, dict) else getattr(size, key, None)
+        if value:
+            return int(value)
+    raise ValueError(f"can't read the image size from {size!r}")
+
+
 def export_manga_ocr(out: Path):
     import numpy as np
     import onnxruntime as ort
     import torch
     from transformers import AutoImageProcessor, AutoTokenizer, VisionEncoderDecoderModel
 
-    model = VisionEncoderDecoderModel.from_pretrained(MANGA_OCR).eval()
+    # plain ("eager") attention traces to ONNX more reliably than the SDPA default
+    model = VisionEncoderDecoderModel.from_pretrained(MANGA_OCR, attn_implementation="eager").eval()
     tok = AutoTokenizer.from_pretrained(MANGA_OCR)
     proc = AutoImageProcessor.from_pretrained(MANGA_OCR)
-    size = proc.size["height"] if isinstance(proc.size, dict) else int(proc.size)
+    size = image_side(proc.size)
     extra = {"dynamo": False} if "dynamo" in inspect.signature(torch.onnx.export).parameters else {}
 
     class Encoder(torch.nn.Module):
