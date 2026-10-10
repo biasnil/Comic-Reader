@@ -17,7 +17,7 @@ hiddenimports += collect_submodules("plugins.manga_translator")
 hiddenimports += collect_submodules("comicreader.core")
 
 # packages with native files or dynamic imports; each one is optional
-for pkg in ("onnxruntime", "pymupdf", "anthropic", "cv2"):
+for pkg in ("onnxruntime", "pymupdf", "anthropic", "cv2", "llama_cpp"):  # llama_cpp: only if installed
     try:
         d, b, h = collect_all(pkg)
         datas += d

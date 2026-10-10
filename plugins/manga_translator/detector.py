@@ -29,6 +29,7 @@ class TextBlock:
     translation: str = ""
     text_box: tuple[int, int, int, int] | None = None   # where the English goes
     font_size: int = 0
+    fixed_size: int = 0                 # set in the editor: draw at this size instead of fitting
     erased: bool = False
     extra: dict = field(default_factory=dict)
 
@@ -44,7 +45,19 @@ class TextBlock:
         return {"box": list(self.box), "vertical": self.vertical, "source": self.source,
                 "translation": self.translation,
                 "text_box": list(self.text_box) if self.text_box else None,
-                "font_size": self.font_size, "erased": self.erased}
+                "font_size": self.font_size, "fixed_size": self.fixed_size,
+                "erased": self.erased, "over_art": bool(self.extra.get("over_art"))}
+
+    @classmethod
+    def from_json(cls, d: dict) -> "TextBlock":
+        b = cls(tuple(d["box"]), 1.0, vertical=d.get("vertical", False),
+                source=d.get("source", ""), translation=d.get("translation", ""),
+                text_box=tuple(d["text_box"]) if d.get("text_box") else None,
+                font_size=d.get("font_size", 0), fixed_size=d.get("fixed_size", 0),
+                erased=d.get("erased", False))
+        if d.get("over_art"):
+            b.extra["over_art"] = True
+        return b
 
 
 def providers(use_gpu: bool) -> list[str]:

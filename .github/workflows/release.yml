@@ -8,6 +8,12 @@
 #          that Plugins > Manage in the reader picks up, without a new reader release.
 #
 # "Run workflow" on the Actions tab does a test build and keeps the files as a workflow artifact.
+#
+# Code signing (removes the "Windows protected your PC" warning) switches on by itself once these
+# repository secrets exist (Settings > Secrets and variables > Actions):
+#   SIGN_PFX_BASE64    the code-signing certificate (.pfx), base64-encoded
+#   SIGN_PFX_PASSWORD  its password
+# Without them the builds are simply unsigned.
 
 name: Release
 
@@ -24,6 +30,8 @@ jobs:
     runs-on: windows-latest
     env:
       PLUGIN_ONLY: ${{ startsWith(github.ref_name, 'translator-v') }}
+      SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+      SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,11 +53,29 @@ jobs:
         if: env.PLUGIN_ONLY != 'true'
         run: pyinstaller --noconfirm --clean ComicReader.spec
 
-      - name: Build Manga Translator plugin
+      - name: Install Manga Translator plugin requirements
         # installed after the reader build so the reader exe doesn't bundle the plugin's packages
+        run: pip install -r plugins/manga_translator/requirements.txt
+
+      - name: Add llama.cpp support to the plugin (optional)
+        continue-on-error: true   # a prebuilt CPU wheel; if none fits, the plugin ships without it
         run: |
-          pip install -r plugins/manga_translator/requirements.txt
-          pyinstaller --noconfirm --clean plugins/manga_translator/MangaTranslator.spec
+          pip install llama-cpp-python --only-binary=:all: --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+
+      - name: Build Manga Translator plugin
+        run: pyinstaller --noconfirm --clean plugins/manga_translator/MangaTranslator.spec
+
+      - name: Sign the executables
+        if: env.SIGN_PFX_BASE64 != ''
+        shell: pwsh
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\sign.pfx", [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          "SIGNTOOL=$signtool" >> $env:GITHUB_ENV
+          $files = @("dist/manga-translator/manga-translator-worker.exe")
+          if (Test-Path dist/ComicReader/ComicReader.exe) { $files += "dist/ComicReader/ComicReader.exe" }
+          & $signtool sign /f "$env:RUNNER_TEMP\sign.pfx" /p $env:SIGN_PFX_PASSWORD /fd sha256 /tr http://timestamp.digicert.com /td sha256 $files
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package plugin
         shell: pwsh
@@ -68,6 +94,10 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
           & $iscc "/DAppVersion=$env:VERSION" installer/ComicReader.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($env:SIGN_PFX_BASE64) {
+            & $env:SIGNTOOL sign /f "$env:RUNNER_TEMP\sign.pfx" /p $env:SIGN_PFX_PASSWORD /fd sha256 /tr http://timestamp.digicert.com /td sha256 "dist/ComicReader-Setup-$env:VERSION.exe"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           Copy-Item "dist/ComicReader-Setup-$env:VERSION.exe" release/
 
       - name: Keep the build (manual runs)

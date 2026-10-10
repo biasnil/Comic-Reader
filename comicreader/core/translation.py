@@ -10,14 +10,20 @@ Both sides import this module, so paths and file names can't drift apart.
 Cache layout:  DATA_DIR/translations/<comic_id>/
     meta.json         {"key": <session.key>, "sig": [mtime, size]}   (stale cache is wiped)
     0007.png          translated page 8
-    0007.json         {"page": 7, "size": [w, h], "blocks": [{"box", "vertical", "source",
-                       "translation", "text_box", "font_size"}, ...]}
+    0007.clean.png    the same page with the Japanese erased but no English yet (for re-typesetting)
+    0007.json         {"page": 7, "page_size": [w, h], "blocks": [{"box", "vertical", "source",
+                       "translation", "text_box", "font_size", "fixed_size", "erased",
+                       "over_art"}, ...]}
 
 Messages, reader -> worker ("cmd"):
-    hello                                   -> hello {protocol, version, missing_models, problems}
-    configure {settings}                    -> configured
+    hello                                   -> hello {protocol, version, problems}
+    configure {settings}                    -> configured {missing_models: [{name, size}]}
+                                               (models the settings need that aren't downloaded)
     download                                -> download {name, done, total}* then downloaded
     translate {job, comic, key, page, rtl}  -> stage {job, page, stage}* then done {job, page, blocks}
+    retypeset {job, key, page, blocks}      -> done {job, page, blocks}
+                                               (blocks: [{translation, fixed_size}] in JSON order;
+                                               redraws the English on 0007.clean.png)
     quit
 Any command can answer: error {job?, page?, message}.
 """
@@ -29,11 +35,12 @@ from pathlib import Path
 
 from ..constants import DATA_DIR
 
-PROTOCOL = 1
+PROTOCOL = 2
 PLUGIN_NAME = "manga-translator"
 WORKER_EXE = "manga-translator-worker.exe"
 RELEASE_ASSET = "MangaTranslator-plugin-win64.zip"
 GITHUB_REPO = "biasnil/comic-reader"
+MODELS_TAG = "models-v1"            # the release the optional models (LaMa, ONNX manga-ocr) come from
 
 TRANSLATIONS_DIR = DATA_DIR / "translations"
 MODELS_DIR = DATA_DIR / "models"
@@ -42,14 +49,16 @@ PLUGIN_DIR = PLUGINS_DIR / PLUGIN_NAME          # where Plugins > Manage install
 LOG_FILE = PLUGINS_DIR / f"{PLUGIN_NAME}.log"
 
 DEFAULT_SETTINGS = {
-    "backend": "openai",                         # openai (any OpenAI-compatible server) | anthropic
+    "backend": "openai",                         # openai (OpenAI-compatible server) | anthropic | llama-cpp
     "base_url": "http://localhost:11434/v1",     # Ollama; LM Studio is http://localhost:1234/v1
     "model": "qwen2.5vl:7b",                     # model name for the OpenAI-compatible server
     "anthropic_model": "claude-opus-5-5",
     "api_key": "",                               # blank: OPENAI_API_KEY / ANTHROPIC_API_KEY
-    "ocr": "auto",                               # auto | manga-ocr | llm (the LLM reads the crops)
-    "inpaint": "auto",                           # auto | fill | off
+    "gguf_path": "",                             # llama-cpp: a local .gguf model file
+    "ocr": "auto",                               # auto | local (ONNX manga-ocr) | manga-ocr | llm
+    "inpaint": "auto",                           # auto | lama | fill | off
     "target": "English",
+    "font_file": "",                             # blank: the bundled Comic Neue Bold
     "gpu": True,
 }
 
@@ -97,13 +106,16 @@ class TranslationCache:
     def page_json(self, page: int) -> Path:
         return self.dir / f"{page:04d}.json"
 
+    def page_clean(self, page: int) -> Path:
+        return self.dir / f"{page:04d}.clean.png"
+
     def has(self, page: int) -> bool:
         return self.page_png(page).exists()
 
     def pages(self) -> set[int]:
         out = set()
         for f in self.dir.glob("*.png"):
-            if f.stem.isdigit():
+            if f.stem.isdigit():  # (0007.clean.png has the stem "0007.clean")
                 out.add(int(f.stem))
         return out
 
@@ -128,15 +140,19 @@ class TranslationCache:
         if page is None:
             shutil.rmtree(self.dir, ignore_errors=True)
             return
-        for f in (self.page_png(page), self.page_json(page)):
+        for f in (self.page_png(page), self.page_json(page), self.page_clean(page)):
             try:
                 f.unlink()
             except OSError:
                 pass
 
-    def write(self, page: int, img, blocks: dict):
-        """Write the JSON first and the PNG last (atomically): a PNG means the page is done."""
+    def write(self, page: int, img, blocks: dict, clean=None):
+        """Write the JSON (and clean page) first and the PNG last (atomically): a PNG means done."""
         self.dir.mkdir(parents=True, exist_ok=True)
+        if clean is not None:
+            tmp = self.page_clean(page).with_suffix(".tmp")
+            clean.save(tmp, format="PNG")
+            tmp.replace(self.page_clean(page))
         tmp = self.page_json(page).with_suffix(".json.tmp")
         tmp.write_text(json.dumps(blocks, ensure_ascii=False, indent=1), encoding="utf-8")
         tmp.replace(self.page_json(page))

@@ -17,8 +17,11 @@ MAX_SIZE = 44
 LINE_SPACING = 1.12
 
 
-def load_font(size: int) -> ImageFont.FreeTypeFont:
-    for name in (str(FONT_FILE), "comicbd.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf"):
+def load_font(size: int, font_file: str = "") -> ImageFont.FreeTypeFont:
+    """`font_file` (a .ttf/.otf chosen in the settings) first, then the bundled font, then fallbacks."""
+    for name in (font_file, str(FONT_FILE), "comicbd.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf"):
+        if not name:
+            continue
         try:
             return ImageFont.truetype(name, size)
         except OSError:
@@ -86,17 +89,21 @@ def wrap(text: str, font, width: int, split_words: bool = True) -> list[str]:
     return lines
 
 
-def fit(text: str, box_w: int, box_h: int) -> tuple[ImageFont.FreeTypeFont, list[str], int]:
+def fit(text: str, box_w: int, box_h: int, font_file: str = "",
+        fixed: int = 0) -> tuple[ImageFont.FreeTypeFont, list[str], int]:
     """Largest font size at which `text` fits the box. Returns (font, lines, line_height).
 
-    Words are only hyphenated when no size fits without that.
+    Words are only hyphenated when no size fits without that. `fixed` > 0 forces that size.
     """
+    if fixed > 0:
+        font = load_font(fixed, font_file)
+        return font, wrap(text, font, box_w), int(fixed * LINE_SPACING)
     for split_words in (False, True):
         lo, hi = MIN_SIZE, max(MIN_SIZE, min(MAX_SIZE, box_h))
         best = None
         while lo <= hi:  # binary search on the size
             size = (lo + hi) // 2
-            font = load_font(size)
+            font = load_font(size, font_file)
             lines = wrap(text, font, box_w, split_words)
             line_h = int(size * LINE_SPACING)
             if len(lines) * line_h <= box_h and all(font.getlength(l) <= box_w for l in lines):
@@ -107,11 +114,11 @@ def fit(text: str, box_w: int, box_h: int) -> tuple[ImageFont.FreeTypeFont, list
         if best is not None:
             return best
     # doesn't fit even at the minimum size: draw it anyway, overflowing
-    font = load_font(MIN_SIZE)
+    font = load_font(MIN_SIZE, font_file)
     return font, wrap(text, font, box_w), int(MIN_SIZE * LINE_SPACING)
 
 
-def draw_blocks(page: Image.Image, blocks: list[TextBlock]) -> Image.Image:
+def draw_blocks(page: Image.Image, blocks: list[TextBlock], font_file: str = "") -> Image.Image:
     out = page.convert("RGB").copy()
     draw = ImageDraw.Draw(out)
     gray = np.asarray(out.convert("L"))
@@ -122,7 +129,7 @@ def draw_blocks(page: Image.Image, blocks: list[TextBlock]) -> Image.Image:
         tx1, ty1, tx2, ty2 = b.text_box or b.box
         margin = 2
         bw, bh = max(8, tx2 - tx1 - 2 * margin), max(8, ty2 - ty1 - 2 * margin)
-        font, lines, line_h = fit(text, bw, bh)
+        font, lines, line_h = fit(text, bw, bh, font_file, b.fixed_size)
         b.font_size = font.size
         total = len(lines) * line_h
         y = (ty1 + ty2) / 2 - total / 2

@@ -37,23 +37,20 @@ class Worker:
         except ImportError as exc:
             problems.append(f"missing package: {exc.name} "
                             "(pip install -r plugins/manga_translator/requirements.txt)")
-        missing = []
-        if not problems:
-            from plugins.manga_translator import models
-            missing = [{"name": m.name, "size": m.size} for m in models.missing()]
-        self.send(type="hello", protocol=PROTOCOL, version=__version__,
-                  missing_models=missing, problems=problems)
+        self.send(type="hello", protocol=PROTOCOL, version=__version__, problems=problems)
 
     def configure(self, msg):
+        from plugins.manga_translator import models
         new = {**DEFAULT_SETTINGS, **(msg.get("settings") or {})}
         if new != self.settings:
             self.settings = new
             self.translator = None
-        self.send(type="configured")
+        missing = [{"name": m.name, "size": models.expected_size(m)} for m in models.missing(self.settings)]
+        self.send(type="configured", missing_models=missing)
 
     def download(self, msg):
         from plugins.manga_translator import models
-        for m in models.missing():
+        for m in models.missing(self.settings):
             last = [-1]
 
             def progress(done, total, name=m.name):
@@ -71,14 +68,30 @@ class Worker:
             from plugins.manga_translator.pipeline import PageTranslator
             self.translator = PageTranslator(self.settings)
         img = self._open(Path(msg["comic"])).load(page)
-        out, blocks = self.translator.translate(
+        out, blocks, clean = self.translator.translate(
             img, rtl=bool(msg.get("rtl", True)),
             progress=lambda stage: self.send(type="stage", job=job, page=page, stage=stage))
         blocks["page"] = page
         cache = TranslationCache(msg["key"])
         cache.validate(comic_signature(Path(msg["comic"])))
-        cache.write(page, out, blocks)
+        cache.write(page, out, blocks, clean)
         self.send(type="done", job=job, page=page, blocks=len(blocks["blocks"]))
+
+    def retypeset(self, msg):
+        """Redraw edited translations on the saved clean page (no models needed)."""
+        from PIL import Image
+
+        from plugins.manga_translator.pipeline import retypeset
+        job, page = msg.get("job"), int(msg["page"])
+        cache = TranslationCache(msg["key"])
+        data = cache.load_blocks(page)
+        if data is None or not cache.page_clean(page).exists():
+            raise RuntimeError("This page was translated by an older version: retranslate it first")
+        with Image.open(cache.page_clean(page)) as im:
+            clean = im.convert("RGB")
+        out, data = retypeset(clean, data, msg.get("blocks") or [], self.settings.get("font_file", ""))
+        cache.write(page, out, data)
+        self.send(type="done", job=job, page=page, blocks=len(data["blocks"]))
 
     def _open(self, path: Path):
         if self._source and self._source[0] == path:
@@ -93,8 +106,8 @@ class Worker:
 
     # ---- loop ------------------------------------------------------------------------ #
     def run(self, stream=sys.stdin):
-        handlers = {"hello": self.hello, "configure": self.configure,
-                    "download": self.download, "translate": self.translate}
+        handlers = {"hello": self.hello, "configure": self.configure, "download": self.download,
+                    "translate": self.translate, "retypeset": self.retypeset}
         for line in stream:
             msg = read_message(line)
             if msg is None:

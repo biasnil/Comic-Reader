@@ -1,8 +1,8 @@
-"""Dialogs for the Manga Translator plugin: translation settings and Plugins > Manage."""
+"""Dialogs for the Manga Translator plugin: settings, background-job progress and Plugins > Manage."""
 import queue
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from ..constants import APP_NAME
 from ..core.translation import DEFAULT_SETTINGS, PLUGIN_DIR
@@ -26,10 +26,17 @@ class _Dialog(tk.Toplevel):
 
 # ---- settings ------------------------------------------------------------------------ #
 class TranslationSettingsDialog(_Dialog):
-    BACKENDS = {"Local / OpenAI-compatible (Ollama, LM Studio…)": "openai",
-                "Anthropic (Claude)": "anthropic"}
-    OCR = {"Automatic": "auto", "manga-ocr (local)": "manga-ocr", "The LLM reads the image": "llm"}
-    INPAINT = {"Automatic": "auto", "Fill bubbles only": "fill", "Don't erase (overlay)": "off"}
+    BACKENDS = {"Local server / OpenAI-compatible (Ollama, LM Studio…)": "openai",
+                "Anthropic (Claude)": "anthropic",
+                "GGUF model file, run inside the plugin (llama.cpp)": "llama-cpp"}
+    OCR = {"Automatic": "auto",
+           "Local OCR model (downloads about 450 MB once)": "local",
+           "manga-ocr package (from source, needs PyTorch)": "manga-ocr",
+           "The translator reads the image (vision model)": "llm"}
+    INPAINT = {"Automatic": "auto",
+               "LaMa: best on artwork (downloads about 200 MB once)": "lama",
+               "Fill bubbles only": "fill",
+               "Don't erase (white box behind the English)": "off"}
 
     def __init__(self, app):
         super().__init__(app, "Translation Settings")
@@ -40,42 +47,57 @@ class TranslationSettingsDialog(_Dialog):
             "model": tk.StringVar(value=s["model"]),
             "anthropic_model": tk.StringVar(value=s["anthropic_model"]),
             "api_key": tk.StringVar(value=s["api_key"]),
+            "gguf_path": tk.StringVar(value=s["gguf_path"]),
             "ocr": tk.StringVar(value=self._label(self.OCR, s["ocr"])),
             "inpaint": tk.StringVar(value=self._label(self.INPAINT, s["inpaint"])),
             "target": tk.StringVar(value=s["target"]),
+            "font_file": tk.StringVar(value=s["font_file"]),
             "gpu": tk.BooleanVar(value=bool(s["gpu"])),
         }
         b, row = self.body, 0
 
-        def line(label, widget):
+        def line(label, widget, browse=None):
             nonlocal row
             ttk.Label(b, text=label).grid(row=row, column=0, sticky="w", pady=3, padx=(0, 8))
             widget.grid(row=row, column=1, sticky="ew", pady=3)
+            if browse:
+                btn = ttk.Button(b, text="Browse…", command=browse)
+                btn.grid(row=row, column=2, padx=(6, 0))
+                widget.browse_button = btn
             row += 1
             return widget
 
+        def note(text):
+            nonlocal row
+            ttk.Label(b, foreground="#888888", wraplength=460, justify="left", text=text
+                      ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(0, 6))
+            row += 1
+
         line("Translator:", ttk.Combobox(b, textvariable=self.vars["backend"], state="readonly",
-                                         values=list(self.BACKENDS), width=44))
+                                         values=list(self.BACKENDS), width=50))
         self.url_entry = line("Server URL:", ttk.Entry(b, textvariable=self.vars["base_url"]))
         self.model_entry = line("Model:", ttk.Entry(b, textvariable=self.vars["model"]))
         self.claude_entry = line("Claude model:", ttk.Entry(b, textvariable=self.vars["anthropic_model"]))
-        line("API key:", ttk.Entry(b, textvariable=self.vars["api_key"], show="*"))
-        ttk.Label(b, foreground="#888888", wraplength=380, justify="left", text=(
-            "Stored in state.json. Leave blank to use the ANTHROPIC_API_KEY / OPENAI_API_KEY "
-            "environment variable. A local server (Ollama, LM Studio) needs no key; reading "
-            "Japanese from images needs a vision model such as qwen2.5vl.")
-        ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(0, 6))
-        row += 1
+        self.key_entry = line("API key:", ttk.Entry(b, textvariable=self.vars["api_key"], show="*"))
+        self.gguf_entry = line("GGUF model file:", ttk.Entry(b, textvariable=self.vars["gguf_path"]),
+                               browse=self._browse_gguf)
+        note("The API key is stored in state.json; leave it blank to use the ANTHROPIC_API_KEY / "
+             "OPENAI_API_KEY environment variable. A local server needs no key. When the "
+             "translator reads the images itself it must be a vision model (qwen2.5vl, Claude). "
+             "A GGUF model needs pip install llama-cpp-python and the local OCR.")
         line("Read Japanese with:", ttk.Combobox(b, textvariable=self.vars["ocr"], state="readonly",
                                                  values=list(self.OCR)))
         line("Remove original text:", ttk.Combobox(b, textvariable=self.vars["inpaint"],
                                                    state="readonly", values=list(self.INPAINT)))
         line("Translate into:", ttk.Entry(b, textvariable=self.vars["target"]))
+        line("Font (.ttf/.otf):", ttk.Entry(b, textvariable=self.vars["font_file"]),
+             browse=self._browse_font)
+        note("Leave the font blank for the built-in Comic Neue Bold.")
         ttk.Checkbutton(b, text="Use the GPU when available", variable=self.vars["gpu"]
                         ).grid(row=row, column=1, sticky="w", pady=3)
         row += 1
         btns = ttk.Frame(b)
-        btns.grid(row=row, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        btns.grid(row=row, column=0, columnspan=3, sticky="e", pady=(10, 0))
         ttk.Button(btns, text="Save", command=self.save).pack(side="right")
         ttk.Button(btns, text="Cancel", command=self.destroy).pack(side="right", padx=6)
         b.columnconfigure(1, weight=1)
@@ -87,10 +109,26 @@ class TranslationSettingsDialog(_Dialog):
         return next((k for k, v in table.items() if v == value), next(iter(table)))
 
     def _sync(self):
-        claude = self.BACKENDS[self.vars["backend"].get()] == "anthropic"
-        self.url_entry.configure(state="disabled" if claude else "normal")
-        self.model_entry.configure(state="disabled" if claude else "normal")
-        self.claude_entry.configure(state="normal" if claude else "disabled")
+        backend = self.BACKENDS[self.vars["backend"].get()]
+        state = lambda on: "normal" if on else "disabled"  # noqa: E731
+        self.url_entry.configure(state=state(backend == "openai"))
+        self.model_entry.configure(state=state(backend == "openai"))
+        self.claude_entry.configure(state=state(backend == "anthropic"))
+        self.key_entry.configure(state=state(backend != "llama-cpp"))
+        self.gguf_entry.configure(state=state(backend == "llama-cpp"))
+        self.gguf_entry.browse_button.configure(state=state(backend == "llama-cpp"))
+
+    def _browse_gguf(self):
+        path = filedialog.askopenfilename(parent=self, title="GGUF model",
+                                          filetypes=[("GGUF model", "*.gguf"), ("All files", "*.*")])
+        if path:
+            self.vars["gguf_path"].set(path)
+
+    def _browse_font(self):
+        path = filedialog.askopenfilename(parent=self, title="Font for the English text",
+                                          filetypes=[("Fonts", "*.ttf *.otf"), ("All files", "*.*")])
+        if path:
+            self.vars["font_file"].set(path)
 
     def save(self):
         v = self.vars
@@ -100,13 +138,67 @@ class TranslationSettingsDialog(_Dialog):
             "model": v["model"].get().strip(),
             "anthropic_model": v["anthropic_model"].get().strip() or DEFAULT_SETTINGS["anthropic_model"],
             "api_key": v["api_key"].get().strip(),
+            "gguf_path": v["gguf_path"].get().strip(),
             "ocr": self.OCR[v["ocr"].get()],
             "inpaint": self.INPAINT[v["inpaint"].get()],
             "target": v["target"].get().strip() or "English",
+            "font_file": v["font_file"].get().strip(),
             "gpu": bool(v["gpu"].get()),
         }
+        if settings["backend"] == "llama-cpp" and settings["ocr"] == "llm":
+            messagebox.showwarning(APP_NAME, "A GGUF model can't read images: choose the local OCR "
+                                   "(or Automatic) under 'Read Japanese with'.", parent=self)
+            return
         self.app.translator.apply_settings(settings)
         self.destroy()
+
+
+# ---- progress ------------------------------------------------------------------------ #
+class ProgressWindow(_Dialog):
+    """A progress bar for a background job. poll() -> (done, total, text, finished).
+
+    Closing it only hides it: the job goes on, and the window disappears when it ends.
+    """
+
+    def __init__(self, app, title: str, poll, stop=None):
+        super().__init__(app, title)
+        self.poll, self.stop = poll, stop
+        self.text = tk.StringVar(value="Starting…")
+        ttk.Label(self.body, textvariable=self.text, width=56).pack(anchor="w")
+        self.bar = ttk.Progressbar(self.body, length=420, mode="determinate")
+        self.bar.pack(fill="x", pady=8)
+        row = ttk.Frame(self.body)
+        row.pack(fill="x")
+        self.close_btn = ttk.Button(row, text="Hide", command=self.withdraw)
+        self.close_btn.pack(side="right")
+        if stop:
+            self.stop_btn = ttk.Button(row, text="Stop", command=self._stop)
+            self.stop_btn.pack(side="right", padx=6)
+        self.protocol("WM_DELETE_WINDOW", self.withdraw)
+        self.bind("<Escape>", lambda e: self.withdraw())
+        self._tick()
+
+    def _stop(self):
+        self.stop()
+        self.stop_btn.configure(state="disabled")
+
+    def _tick(self):
+        try:
+            done, total, text, finished = self.poll()
+            self.text.set(text)
+            self.bar.configure(maximum=max(1, total), value=done)
+        except tk.TclError:
+            return  # destroyed
+        if not finished:
+            self.after(400, self._tick)
+            return
+        if self.state() == "withdrawn":
+            self.destroy()
+        else:
+            self.close_btn.configure(text="Close", command=self.destroy)
+            self.protocol("WM_DELETE_WINDOW", self.destroy)
+            if self.stop:
+                self.stop_btn.configure(state="disabled")
 
 
 # ---- plugin manager ---------------------------------------------------------------- #

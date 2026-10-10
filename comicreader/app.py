@@ -202,6 +202,8 @@ class ComicReader(BaseTk):
         add("favorite", "Favourite this comic", self.toggle_favorite, ["Control-d"])
         add("translate", "Translate pages (Manga Translator)", self.translator.toggle, ["t"])
         add("translate_all", "Translate whole comic", self.translator.translate_all, [])
+        add("translate_edit", "Edit this page's translations", self.translator.edit_page,
+            ["Control-e"])
 
     def _build_ui(self):
         # the reader is one page of the window (the library is the other)

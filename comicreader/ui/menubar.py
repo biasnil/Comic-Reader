@@ -162,7 +162,10 @@ class MenuBar:
                           variable=a.translator.enabled,
                           command=lambda: a.translator.set_enabled(a.translator.enabled.get()))
         self._cmd(t, "translate_all", "Translate Whole Comic")
+        self._cmd(t, "translate_edit", "Edit Translations…")
         t.add_command(label="Retranslate This Page", command=a.translator.retranslate_page)
+        t.add_separator()
+        t.add_command(label="Export Translated Comic (CBZ)…", command=a.translator.export_comic)
         t.add_command(label="Delete This Comic's Translations…", command=a.translator.clear_comic)
         t.add_separator()
         t.add_command(label="Translation Settings…", command=lambda: TranslationSettingsDialog(a))

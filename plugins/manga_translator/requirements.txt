@@ -4,3 +4,4 @@ onnxruntime          # text detection; on Windows, onnxruntime-directml instead 
 anthropic            # only for the Anthropic (Claude) translator backend
 opencv-python-headless  # optional: better text removal on artwork (inpaint "auto")
 # manga-ocr          # optional, large (installs torch): local Japanese OCR instead of the LLM reading crops
+# llama-cpp-python     # optional: run a local .gguf model inside the plugin (Translation Settings)

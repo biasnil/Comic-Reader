@@ -3,6 +3,8 @@
   OpenAIBackend     any OpenAI-compatible chat server: Ollama, LM Studio, llama.cpp's
                     llama-server, or OpenAI itself. Plain urllib, no extra package.
   AnthropicBackend  Claude through the official `anthropic` package (pip install anthropic).
+  LlamaCppBackend   a local GGUF model inside the worker (pip install llama-cpp-python). It can't
+                    read images, so it needs the local OCR (ocr = "local" or "manga-ocr").
 
 When `with_images` is set (OCR mode "llm") each block is sent as an image crop too and the
 model reads the Japanese itself; otherwise only the OCR'd text is sent.
@@ -181,7 +183,34 @@ class AnthropicBackend:
         return _parse(text)
 
 
+class LlamaCppBackend:
+    def __init__(self, gguf_path: str, use_gpu: bool = True):
+        try:
+            from llama_cpp import Llama
+        except ImportError as exc:
+            raise TranslationError("The llama.cpp translator needs: pip install llama-cpp-python") from exc
+        if not gguf_path or not os.path.isfile(gguf_path):
+            raise TranslationError("Choose a .gguf model file in Translation Settings")
+        self.llm = Llama(model_path=gguf_path, n_ctx=8192, n_gpu_layers=-1 if use_gpu else 0,
+                         verbose=False)
+
+    def translate(self, items, target: str, with_images: bool) -> dict[int, tuple[str, str]]:
+        if with_images:
+            raise TranslationError("The llama.cpp translator can't read images; use the local OCR")
+        out = self.llm.create_chat_completion(
+            messages=[{"role": "system", "content": SYSTEM_PROMPT.format(target=target)},
+                      {"role": "user", "content": _intro(items, target, False)}],
+            temperature=0.2, max_tokens=4096, response_format={"type": "json_object"})
+        try:
+            text = out["choices"][0]["message"]["content"] or ""
+        except (KeyError, IndexError, TypeError) as exc:
+            raise TranslationError("Unexpected answer from llama.cpp") from exc
+        return _parse(text)
+
+
 def make_backend(settings: dict):
+    if settings.get("backend") == "llama-cpp":
+        return LlamaCppBackend(settings.get("gguf_path", ""), settings.get("gpu", True))
     if settings.get("backend") == "anthropic":
         return AnthropicBackend(settings.get("anthropic_model") or "claude-opus-5-5",
                                 settings.get("api_key", ""))

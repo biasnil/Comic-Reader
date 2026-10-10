@@ -26,19 +26,29 @@ comicreader/
     storage.py              JsonFile (atomic write), Store (state.json), LibraryDB (library.json)
     keybindings.py          KeyBindings: register(name, label, callback, default_keys), overrides persisted
     translation.py          plugin contract: protocol, TranslationCache, paths, DEFAULT_SETTINGS, worker_command
+    export.py               export_cbz(): translated-CBZ export (own Source, runs in a thread)
   plugins/                  reader side of the plugin (tkinter allowed here)
     client.py               WorkerClient: starts the worker process, stdout -> queue
-    controller.py           TranslatorController: image_for() hook, page queue, status, redraws
+    controller.py           TranslatorController: image_for() hook, page queue, batch progress, edits, export
+    editor.py               BubbleEditor: edit a page's English / pin font sizes -> "retypeset" job
     installer.py            install/update/remove the plugin from GitHub Releases (sha256-checked)
-    dialogs.py              TranslationSettingsDialog, PluginManagerDialog
+    dialogs.py              TranslationSettingsDialog, ProgressWindow, PluginManagerDialog
   ui/ library/ utils/       unchanged (see their module docstrings)
 plugins/manga_translator/   the plugin (no tkinter; runs as its own process)
   worker.py                 JSON-lines command loop; opens the comic itself via SourceFactory
-  pipeline.py               PageTranslator.translate(img, rtl) -> (img, blocks)
-  detector.py ocr.py inpaint.py translator.py typeset.py models.py
+  pipeline.py               PageTranslator.translate(img, rtl) -> (img, blocks, clean); retypeset()
+  detector.py               comic-text-detector ONNX, TextBlock (to_json/from_json), reading order
+  ocr.py                    OnnxMangaOcr (local), MangaOcrReader (pip manga-ocr), or "llm" reads crops
+  inpaint.py                bubble fill, LamaInpainter (ONNX), OpenCV fallback
+  translator.py             OpenAIBackend (urllib), AnthropicBackend (SDK), LlamaCppBackend (GGUF)
+  typeset.py models.py      fitting/drawing; model registry (detector pinned; others via models.json)
   MangaTranslator.spec, requirements.txt, assets/fonts (Comic Neue, OFL)
 installer/ComicReader.iss   Inno Setup script (reader + optional plugin component)
-.github/workflows/release.yml  tag v* -> setup.exe + zips; tag translator-v* -> plugin zip only
+.github/workflows/release.yml  tag v* -> setup.exe + zips; tag translator-v* -> plugin zip only;
+                            signs everything when SIGN_PFX_BASE64 / SIGN_PFX_PASSWORD secrets exist
+.github/workflows/models.yml   manual: tools/export_models.py -> "models-v1" release (manga-ocr ONNX,
+                            LaMa ONNX, models.json with SHA-256s) that models.py downloads from
+tools/export_models.py
 docs/MANGA_TRANSLATOR_BRIEF.md
 ```
 
@@ -55,7 +65,8 @@ docs/MANGA_TRANSLATOR_BRIEF.md
 - `PDF_LOCK` (sources.py) guards MuPDF. `PageCache` is NOT thread-safe.
 - **Plugin:** the reader and worker share nothing but `core/translation.py`, which defines the message protocol
   (`PROTOCOL` must match, so bump it on breaking changes) and the on-disk cache. The worker writes
-  `translations/<sha1(key)[:16]>/<page>.png/.json`; the reader only reads them. The worker is found in
+  `translations/<sha1(key)[:16]>/<page>.png/.clean.png/.json`; the reader only reads them (editing goes
+  through the worker's `retypeset` command). The worker is found in
   this order: the repo source (not frozen), then `DATA_DIR/plugins/manga-translator/`, then `<exe dir>/plugins/manga-translator/`.
 
 ## Conventions to keep
@@ -71,6 +82,13 @@ docs/MANGA_TRANSLATOR_BRIEF.md
 - Keep README.md in sync (features, keys table, troubleshooting).
 - BiasNil prefers small, targeted changes: when only one file changes, change/report just that file.
 
-## Next (see the brief for detail)
-Phase 2: LaMa inpainting, a whole-comic progress window, translated-CBZ export, installer code signing.
-Phase 3: a bubble text editor with re-typesetting, an in-process llama-cpp backend, manga-ocr as ONNX.
+## Status
+Phases 1-3 of the brief are built (plugin 0.2.0, protocol 2). Not yet verified for real: the Windows
+builds/installer (never run on Windows), the Models workflow (manga-ocr export and LaMa mirror were only
+tested with stand-in ONNX files; Hugging Face is blocked in the cloud sandbox), translation quality with a
+real LLM. Ideas after that are listed in the brief.
+
+## Testing notes (cloud sandbox)
+- tkinter is only available for python3.12 (`apt-get install python3-tk`); run the GUI under `xvfb-run`.
+- Fake OpenAI-compatible / Anthropic servers on localhost stand in for real LLMs; set `NO_PROXY=127.0.0.1`.
+- Stand-in ONNX models can be built with the `onnx` package (use `ir_version=8` for onnxruntime).

@@ -1,6 +1,6 @@
 # Brief: Manga Translator plugin, installer and releases
 
-Owner: BiasNil. Status: Phase 1 built (this document describes what was asked for and what exists).
+Owner: BiasNil. Status: Phases 1, 2 and 3 built (plugin 0.2.0). This document describes what was asked for and what exists.
 
 ## What BiasNil wants
 
@@ -18,11 +18,11 @@ Owner: BiasNil. Status: Phase 1 built (this document describes what was asked fo
 | Question | Decision |
 |---|---|
 | How the plugin runs | A separate helper process (`manga-translator-worker.exe`), which the reader talks to over stdin/stdout. The reader gains no weight, a plugin crash can't take the reader down, and the plugin can be updated on its own. |
-| OCR | No torch in the exe. By default the translation model reads the Japanese from image crops of each bubble, so it needs a vision model. `manga-ocr` is used automatically when it is installed (from source; it is ~2 GB). |
+| OCR | No torch in the exe. Options: the local manga-ocr ONNX model (offline, downloads ~450 MB), the translation model reading image crops (needs a vision model), or the `manga-ocr` package from source. *Automatic* picks the best one available. |
 | Default translator | A local OpenAI-compatible server: Ollama at `http://localhost:11434/v1` with `qwen2.5vl:7b`. It is free and offline. Claude (Anthropic API) is the other built-in choice, and LM Studio, llama.cpp's server and OpenAI also work. |
 | GPU | Used automatically if onnxruntime has a GPU provider (CUDA / DirectML). The released build is CPU-only, so expect several seconds per page. |
 | Font | Comic Neue Bold (SIL Open Font License), bundled with the plugin. |
-| Text removal | Plain bubbles are filled with their background colour. Text over artwork is inpainted with OpenCV. When neither works, the English is drawn in a white box. LaMa inpainting is phase 2. |
+| Text removal | Plain bubbles are filled with their background colour. Text over artwork is repainted by LaMa (if downloaded) or OpenCV; with neither, the English is drawn in a white box. |
 
 ## How it fits together
 
@@ -53,7 +53,26 @@ Reader (comicreader/)                       Plugin (plugins/manga_translator/)
 
 Local builds: `build.bat` (reader), `build.bat plugin`, `build.bat installer` (needs Inno Setup 6).
 
-## Next phases
+## Phase 2 (built)
 
-- **Phase 2:** LaMa inpainting for text over artwork, a progress window for "translate whole comic", export of a translated CBZ, and code signing for the installer (removes the SmartScreen warning).
-- **Phase 3:** an editor to fix a bubble's translation and re-typeset it from the saved JSON, an in-process llama-cpp backend, and a manga-ocr ONNX export so local OCR works in the exe without torch.
+- **LaMa inpainting** for text over artwork and screentone (ONNX, downloads about 200 MB when chosen; OpenCV stays as the fallback).
+- **Translate Whole Comic** progress window with Hide and Stop.
+- **Export Translated Comic (CBZ)**: translated pages plus a ComicInfo.xml, readable anywhere.
+- **Code signing** in the release workflow: switches on when the `SIGN_PFX_BASE64` / `SIGN_PFX_PASSWORD` secrets are added.
+
+## Phase 3 (built)
+
+- **Bubble editor** (Ctrl+E): change any bubble's English or pin its font size. The worker redraws the page on the saved text-free image, without running the AI again.
+- **In-process llama.cpp** translator: pick a `.gguf` file, no server needed (uses the local OCR).
+- **manga-ocr as ONNX**: accurate offline OCR that works in the exe without PyTorch (downloads about 450 MB when chosen).
+- Optional models are published by the **Models** workflow as this repo's `models-v1` release, with checksums.
+- A custom font (.ttf/.otf) can be chosen.
+
+## Still to check
+
+- Run **Actions > Models** once (creates `models-v1`), then **Actions > Release > Run workflow** for a test build. Neither has run yet.
+- Try a real translator (Ollama or Claude) on a few chapters and tune the prompt or bubble fitting if needed.
+
+## Ideas for later
+
+Vertical English for narrow columns, per-comic glossary (character names), a canvas overlay that highlights the bubble being edited, batch export of a whole library folder.
