@@ -9,7 +9,7 @@ APP_NAME = "Comic Reader"
 
 # Project root when running from source, or PyInstaller's unpack folder inside the built exe
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
-ASSETS_DIR = BASE_DIR / "assets"
+ASSETS_DIR = BASE_DIR / "Icon" / "assets"  # icon.ico / icon.png (bundled as Icon\assets in the exe)
 ICON_FILE = ASSETS_DIR / "icon.ico"
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff"}

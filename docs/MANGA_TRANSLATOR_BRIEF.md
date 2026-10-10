@@ -1,8 +1,8 @@
 # Brief: Manga Translator plugin, installer and releases
 
-Owner: Iven. Status: Phase 1 built (this document describes what was asked for and what exists).
+Owner: BiasNil. Status: Phase 1 built (this document describes what was asked for and what exists).
 
-## What Iven wants
+## What BiasNil wants
 
 1. **Two experiences from one product.**
    - **Comic Reader (Standard):** the reader as it is today. It stays small and fast, and none of the translation code or AI packages are loaded or bundled.

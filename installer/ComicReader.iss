@@ -18,7 +18,7 @@
 AppId={{C848B07F-68FE-4764-B64C-96BBE1A4DDFC}
 AppName={#AppName}
 AppVersion={#AppVersion}
-AppPublisher=Iven
+AppPublisher=BiasNil
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
@@ -31,8 +31,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequiredOverridesAllowed=dialog
 ChangesAssociations=yes
-#if FileExists(AddBackslash(SourcePath) + "..\assets\icon.ico")
-SetupIconFile=..\assets\icon.ico
+#if FileExists(AddBackslash(SourcePath) + "..\Icon\assets\icon.ico")
+SetupIconFile=..\Icon\assets\icon.ico
 #endif
 
 [Types]

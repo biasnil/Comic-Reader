@@ -4,7 +4,8 @@ Read this first. It describes the project as it stands. The plugin brief is in
 `docs/MANGA_TRANSLATOR_BRIEF.md`.
 
 ## What this is
-A desktop comic/manga reader in **Python + tkinter** (Windows-first). Owner: Iven.
+A desktop comic/manga reader in **Python + tkinter** (Windows-first).
+Owner: **BiasNil** (pen name). Always call the owner BiasNil, never "Iven" (that's only in the Windows user folder below).
 Project root: `C:\Users\Ivenlee_KR\Documents\Python File\Comic Reader\`
 Run: `python main.py [file-or-folder]`. Build: `build.bat` (reader), `build.bat plugin`, `build.bat installer`.
 It reads CBZ/ZIP, CBR/RAR, CBT/TAR, CB7/CBA/7Z, PDF and folders of images. It has single, double and webtoon
@@ -15,7 +16,7 @@ The optional **Manga Translator plugin** translates Japanese pages to English (k
 ```
 main.py                     entry point (DPI awareness + AppUserModelID on Windows)
 ComicReader.spec, build.bat, requirements.txt, README.md
-assets/icon.ico, icon.png
+Icon/assets/icon.ico, icon.png   app/exe/installer icon (keep it here: BiasNil wants it in Icon\assets)
 comicreader/
   app.py                    ComicReader(BaseTk): main window, wires everything, reading actions
   constants.py              paths (DATA_DIR=~/.comic_reader, BASE_DIR handles sys._MEIPASS), themes, ROT
@@ -68,7 +69,7 @@ docs/MANGA_TRANSLATOR_BRIEF.md
   (`ComicReader.spec` or `MangaTranslator.spec`), the requirements file and the README tables.
 - `build.bat` and `installer/*.iss` use CRLF line endings.
 - Keep README.md in sync (features, keys table, troubleshooting).
-- Iven prefers small, targeted changes: when only one file changes, change/report just that file.
+- BiasNil prefers small, targeted changes: when only one file changes, change/report just that file.
 
 ## Next (see the brief for detail)
 Phase 2: LaMa inpainting, a whole-comic progress window, translated-CBZ export, installer code signing.

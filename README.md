@@ -175,7 +175,7 @@ main.py                 starts the app
 requirements.txt
 build.bat               builds a Windows .exe with PyInstaller
 ComicReader.spec        PyInstaller recipe
-assets/
+Icon/assets/
     icon.ico            app icon (exe + window)
     icon.png
 installer/ComicReader.iss   Inno Setup script for setup.exe
@@ -213,7 +213,7 @@ docs/MANGA_TRANSLATOR_BRIEF.md
 ```
 
 The script creates `.venv` if needed, installs `requirements.txt` and PyInstaller, and runs PyInstaller.
-The `assets\` folder is bundled into the build and `assets\icon.ico` becomes the exe icon; to change the
+The `Icon\assets\` folder is bundled into the build and `Icon\assets\icon.ico` becomes the exe icon (and the installer's icon); to change the
 icon, replace that file and rebuild. CBR still needs WinRAR or 7-Zip installed on the machine that runs the exe.
 
 ### Plugin, installer and releases
