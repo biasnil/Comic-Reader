@@ -40,7 +40,7 @@ class Worker:
         self.send(type="hello", protocol=PROTOCOL, version=__version__, problems=problems)
 
     def configure(self, msg):
-        from plugins.manga_translator import models
+        from plugins.common import models
         new = {**DEFAULT_SETTINGS, **(msg.get("settings") or {})}
         if new != self.settings:
             self.settings = new
@@ -49,7 +49,7 @@ class Worker:
         self.send(type="configured", missing_models=missing)
 
     def download(self, msg):
-        from plugins.manga_translator import models
+        from plugins.common import models
         for m in models.missing(self.settings):
             last = [-1]
 

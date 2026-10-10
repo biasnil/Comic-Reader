@@ -30,23 +30,16 @@ Any command can answer: error {job?, page?, message}.
 import hashlib
 import json
 import shutil
-import sys
 from pathlib import Path
 
 from ..constants import DATA_DIR
+from .plugins import GITHUB_REPO, read_message, write_message  # noqa: F401  (re-exported for the worker)
 
 PROTOCOL = 2
-PLUGIN_NAME = "manga-translator"
-WORKER_EXE = "manga-translator-worker.exe"
-RELEASE_ASSET = "MangaTranslator-plugin-win64.zip"
-GITHUB_REPO = "biasnil/comic-reader"
 MODELS_TAG = "models-v1"            # the release the optional models (LaMa, ONNX manga-ocr) come from
 
 TRANSLATIONS_DIR = DATA_DIR / "translations"
 MODELS_DIR = DATA_DIR / "models"
-PLUGINS_DIR = DATA_DIR / "plugins"
-PLUGIN_DIR = PLUGINS_DIR / PLUGIN_NAME          # where Plugins > Manage installs the worker
-LOG_FILE = PLUGINS_DIR / f"{PLUGIN_NAME}.log"
 
 DEFAULT_SETTINGS = {
     "backend": "openai",                         # openai (OpenAI-compatible server) | anthropic | llama-cpp
@@ -74,22 +67,6 @@ def comic_signature(path: Path) -> list:
         return [int(st.st_mtime), st.st_size if Path(path).is_file() else 0]
     except OSError:
         return [0, 0]
-
-
-def write_message(stream, msg: dict):
-    stream.write(json.dumps(msg, ensure_ascii=False) + "\n")
-    stream.flush()
-
-
-def read_message(line: str) -> dict | None:
-    line = line.strip()
-    if not line.startswith("{"):
-        return None
-    try:
-        msg = json.loads(line)
-    except ValueError:
-        return None
-    return msg if isinstance(msg, dict) else None
 
 
 # ---- cache ------------------------------------------------------------------- #
@@ -165,20 +142,3 @@ class TranslationCache:
             return json.loads(self.page_json(page).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
-
-
-# ---- where is the worker? ---------------------------------------------------- #
-def worker_command(base_dir: Path) -> tuple[list[str], Path] | None:
-    """(argv, cwd) to start the worker, or None if the plugin isn't available.
-
-    Order: the plugin source next to the reader's source (development), then a worker
-    downloaded through Plugins > Manage, then one the installer put next to the exe.
-    """
-    if not getattr(sys, "frozen", False):
-        if (Path(base_dir) / "plugins" / "manga_translator" / "worker.py").exists():
-            return [sys.executable, "-m", "plugins.manga_translator.worker"], Path(base_dir)
-    for folder in (PLUGIN_DIR, Path(sys.executable).resolve().parent / "plugins" / PLUGIN_NAME):
-        exe = folder / WORKER_EXE
-        if exe.exists():
-            return [str(exe)], folder
-    return None

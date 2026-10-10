@@ -13,6 +13,7 @@ Components (package/module):
   ThemeManager              ui/theme.py          themes and UI scale
   LibraryManager            library/manager.py   library database, scanning and the library page
   TranslatorController      plugins/controller.py  Manga Translator plugin (page translation)
+  BubbleReaderController    plugins/bubble_reader.py  Bubble Reader plugin (reads bubbles aloud)
 """
 import json
 import textwrap
@@ -28,6 +29,8 @@ from .ui.dragdrop import HAS_DND, BaseTk, DropTarget
 from .utils.helpers import apply_filter, human_size, key_string, natural_key
 from .core.keybindings import KeyBindings
 from .library.manager import LibraryManager
+from .core.plugins import BUBBLE_READER, TRANSLATOR
+from .plugins.bubble_reader import BubbleReaderController
 from .plugins.controller import TranslatorController
 from .ui.menubar import MenuBar
 from .core.session import ComicQueue, ComicSession, PageCache, ReadingStats
@@ -63,6 +66,9 @@ class ComicReader(BaseTk):
         self.cache = PageCache()
         self.library = LibraryManager(self)
         self.translator = TranslatorController(self)
+        self.bubble_reader = BubbleReaderController(self)
+        self.plugin_controllers = {TRANSLATOR.id: self.translator,
+                                   BUBBLE_READER.id: self.bubble_reader}
         SourceFactory.password_provider = lambda: simpledialog.askstring(
             APP_NAME, "This PDF is password protected:", show="*", parent=self)
 
@@ -204,6 +210,11 @@ class ComicReader(BaseTk):
         add("translate_all", "Translate whole comic", self.translator.translate_all, [])
         add("translate_edit", "Edit this page's translations", self.translator.edit_page,
             ["Control-e"])
+        add("read_aloud", "Read bubbles aloud / pause (Bubble Reader)", self.bubble_reader.toggle,
+            ["p"])
+        add("read_next", "Read the next bubble", self.bubble_reader.next_bubble, ["period"])
+        add("read_prev", "Read the previous bubble", self.bubble_reader.prev_bubble, ["comma"])
+        add("read_stop", "Stop reading aloud", self.bubble_reader.stop, ["Shift-p"])
 
     def _build_ui(self):
         # the reader is one page of the window (the library is the other)
@@ -297,6 +308,11 @@ class ComicReader(BaseTk):
         self.stats.page_viewed(self.session.key, page)
         self._update_status()
         self.progress.set_page(page)
+        self.bubble_reader.page_shown(page, span)
+
+    def after_draw(self):
+        """A view redrew the canvas: let overlays (the Bubble Reader's highlight) redraw too."""
+        self.bubble_reader.after_draw()
 
     def _select_view(self):
         view = self.webtoon if self.mode.get() == "webtoon" else self.paged
@@ -363,6 +379,7 @@ class ComicReader(BaseTk):
         self.queue.set(queue_items if queue_items is not None else [path], qpos)
         self.cache.clear()
         self.translator.comic_opened()
+        self.bubble_reader.comic_opened()
         self.zoom, self.rotation = 1.0, 0
 
         key = self.session.key
@@ -576,6 +593,8 @@ class ComicReader(BaseTk):
             flags.append(f"EN: {self.translator.status_text()}")
         if flags:
             parts.append(" ".join(flags))
+        if self.bubble_reader.status_text():
+            parts.append(f"Read aloud: {self.bubble_reader.status_text()}")
         self.progress.set_status("  |  ".join(parts))
         if not self._in_library:
             self.title(f"{s.path.name} - {APP_NAME}")
@@ -667,5 +686,6 @@ class ComicReader(BaseTk):
         self.store.save()
         self.library.save()
         self.translator.shutdown()
+        self.bubble_reader.shutdown()
         self.session.close()
         self.destroy()

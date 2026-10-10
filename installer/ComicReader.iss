@@ -3,9 +3,10 @@
 ;
 ; Expects:  dist\ComicReader\             (ComicReader.spec)
 ;           dist\manga-translator\        (plugins\manga_translator\MangaTranslator.spec; optional)
+;           dist\bubble-reader\           (plugins\bubble_reader\BubbleReader.spec; optional)
 ; Produces: dist\ComicReader-Setup-<version>.exe
 ;
-; Components: the reader (always) and the Manga Translator plugin (optional, unticked by default).
+; Components: the reader (always) and the Manga Translator and Bubble Reader plugins (optional, unticked by default).
 ; Settings and the library in %USERPROFILE%\.comic_reader are never touched by install/uninstall.
 
 #ifndef AppVersion
@@ -37,13 +38,16 @@ SetupIconFile=..\Icon\assets\icon.ico
 
 [Types]
 Name: "standard"; Description: "Comic Reader"
-Name: "full"; Description: "Comic Reader + Manga Translator plugin"
+Name: "full"; Description: "Comic Reader + Manga Translator + Bubble Reader"
 Name: "custom"; Description: "Custom"; Flags: iscustom
 
 [Components]
 Name: "main"; Description: "Comic Reader"; Types: standard full custom; Flags: fixed
 #if DirExists(AddBackslash(SourcePath) + "..\dist\manga-translator")
 Name: "translator"; Description: "Manga Translator plugin (Japanese -> English page translation, about 200 MB more; its AI model downloads on first use)"; Types: full
+#endif
+#if DirExists(AddBackslash(SourcePath) + "..\dist\bubble-reader")
+Name: "bubblereader"; Description: "Bubble Reader plugin (reads speech bubbles aloud, about 500 MB more; its voices download on first use)"; Types: full
 #endif
 
 [Tasks]
@@ -55,11 +59,18 @@ Source: "..\dist\ComicReader\*"; DestDir: "{app}"; Flags: ignoreversion recurses
 #if DirExists(AddBackslash(SourcePath) + "..\dist\manga-translator")
 Source: "..\dist\manga-translator\*"; DestDir: "{app}\plugins\manga-translator"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: translator
 #endif
+#if DirExists(AddBackslash(SourcePath) + "..\dist\bubble-reader")
+Source: "..\dist\bubble-reader\*"; DestDir: "{app}\plugins\bubble-reader"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: bubblereader
+#endif
 
 #if DirExists(AddBackslash(SourcePath) + "..\dist\manga-translator")
 [InstallDelete]
 ; unticking the plugin on a re-install removes it
 Type: filesandordirs; Name: "{app}\plugins\manga-translator"; Components: not translator
+#endif
+#if DirExists(AddBackslash(SourcePath) + "..\dist\bubble-reader")
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\plugins\bubble-reader"; Components: not bubblereader
 #endif
 
 [Icons]

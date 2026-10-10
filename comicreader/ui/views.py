@@ -7,6 +7,10 @@ Two view classes share one small interface (BaseView):
 They talk to the main window through a `host`, which must provide:
   canvas, session, mode, fit, manga, zoom, rotation, page, span, view,
   get_image(i), style(img), canvas_bg(), on_view_page(page, span)
+and may provide after_draw() (called after the canvas was redrawn, e.g. to add overlays).
+
+Both views can map a box in page pixels to canvas coordinates (page_box_to_canvas) and back
+(canvas_to_page); the Bubble Reader uses this to outline and click bubbles.
 """
 import bisect
 
@@ -40,6 +44,19 @@ class BaseView:
     def on_scroll(self):
         """Called whenever the canvas scrolled."""
 
+    def page_box_to_canvas(self, page: int, box) -> tuple[float, float, float, float] | None:
+        """`box` (x1, y1, x2, y2 in page pixels) on the canvas, or None if not on screen."""
+        return None
+
+    def canvas_to_page(self, x: float, y: float) -> tuple[int, float, float] | None:
+        """(page, x, y in page pixels) under canvas point (x, y), or None."""
+        return None
+
+    def _drawn(self):
+        after = getattr(self.host, "after_draw", None)
+        if after:
+            after()
+
 
 # --------------------------------------------------------------------------- #
 class PagedView(BaseView):
@@ -49,6 +66,9 @@ class PagedView(BaseView):
         super().__init__(host)
         self.base: Image.Image | None = None  # the composed (and rotated) page(s), unscaled
         self.photo = None                      # keep a reference or Tk drops the image
+        self.placements: list[tuple[int, int, float]] = []  # (page, x in base, page->base scale)
+        self.origin = (0, 0)                   # where base's top-left is drawn on the canvas
+        self.scale = 1.0                       # base -> canvas
 
     @property
     def active(self) -> bool:
@@ -74,17 +94,20 @@ class PagedView(BaseView):
         h = self.host
         first = h.get_image(index)
         if span == 1:
+            self.placements = [(index, 0, 1.0)]
             return first
         second = h.get_image(index + 1)
-        pair = [second, first] if h.manga.get() else [first, second]
-        height = max(im.height for im in pair)
-        pair = [im if im.height == height
-                else im.resize((round(im.width * height / im.height), height), RESAMPLE)
-                for im in pair]
-        out = Image.new("RGB", (sum(im.width for im in pair), height), h.canvas_bg())
-        x = 0
-        for im in pair:
+        pair = [(index + 1, second), (index, first)] if h.manga.get() else [(index, first), (index + 1, second)]
+        height = max(im.height for _, im in pair)
+        out = Image.new("RGB", (sum(round(im.width * height / im.height) for _, im in pair), height),
+                        h.canvas_bg())
+        x, self.placements = 0, []
+        for page, im in pair:
+            f = height / im.height
+            if im.height != height:
+                im = im.resize((round(im.width * f), height), RESAMPLE)
             out.paste(im, (x, 0))
+            self.placements.append((page, x, f))
             x += im.width
         return out
 
@@ -124,8 +147,8 @@ class PagedView(BaseView):
         self.photo = ImageTk.PhotoImage(h.style(img))
 
         c.delete("all")
-        c.create_image(max(0, (cw - nw) // 2), max(0, (ch - nh) // 2),
-                       image=self.photo, anchor="nw")
+        self.origin, self.scale = (max(0, (cw - nw) // 2), max(0, (ch - nh) // 2)), nw / iw
+        c.create_image(*self.origin, image=self.photo, anchor="nw")
         c.configure(scrollregion=(0, 0, max(cw, nw), max(ch, nh)))
         self.last_size = (c.winfo_width(), c.winfo_height())
         c.xview_moveto(0)
@@ -135,6 +158,30 @@ class PagedView(BaseView):
             c.yview_moveto(0)
         else:
             c.yview_moveto(prev_top)
+        self._drawn()
+
+    def page_box_to_canvas(self, page, box):
+        if self.base is None or self.host.rotation:
+            return None
+        (ox, oy), s = self.origin, self.scale
+        for idx, x0, f in self.placements:
+            if idx == page:
+                return (ox + (x0 + box[0] * f) * s, oy + box[1] * f * s,
+                        ox + (x0 + box[2] * f) * s, oy + box[3] * f * s)
+        return None
+
+    def canvas_to_page(self, x, y):
+        if self.base is None or self.host.rotation or not self.scale:
+            return None
+        (ox, oy), s = self.origin, self.scale
+        bx, by = (x - ox) / s, (y - oy) / s
+        if not (0 <= bx <= self.base.width and 0 <= by <= self.base.height):
+            return None
+        rights = [x0 for _, x0, _ in self.placements[1:]] + [self.base.width]
+        for (idx, x0, f), right in zip(self.placements, rights):
+            if x0 <= bx <= right:
+                return idx, (bx - x0) / f, by / f
+        return None
 
     def deactivate(self):
         self.base = None
@@ -303,3 +350,30 @@ class WebtoonView(BaseView):
             idx = n - 1
         if idx != h.page:
             h.on_view_page(idx, 1)
+        self._drawn()
+
+    def _placement(self, page: int):
+        """(left x, top y, page->canvas scale) of a page whose size is known."""
+        size = self.sizes.get(page)
+        if not size or not self._active or page >= len(self.offsets) - 1:
+            return None
+        cw = max(self.canvas.winfo_width(), 100)
+        w, _ = self._disp_size(size, cw)
+        return max(0, (cw - w) // 2), self.offsets[page], w / size[0]
+
+    def page_box_to_canvas(self, page, box):
+        p = self._placement(page)
+        if p is None:
+            return None
+        x0, y0, f = p
+        return x0 + box[0] * f, y0 + box[1] * f, x0 + box[2] * f, y0 + box[3] * f
+
+    def canvas_to_page(self, x, y):
+        if not self._active or not self.offsets:
+            return None
+        page = min(len(self.offsets) - 2, max(0, bisect.bisect_right(self.offsets, y) - 1))
+        p = self._placement(page)
+        if p is None:
+            return None
+        x0, y0, f = p
+        return page, (x - x0) / f, (y - y0) / f

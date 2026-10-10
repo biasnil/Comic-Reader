@@ -3,7 +3,8 @@ import tkinter as tk
 from pathlib import Path
 
 from ..constants import CANVAS_BGS
-from ..plugins.dialogs import PluginManagerDialog, TranslationSettingsDialog
+from ..plugins.dialogs import (BubbleReaderSettingsDialog, PluginManagerDialog,
+                               TranslationSettingsDialog)
 from .dialogs import KeysDialog
 
 
@@ -26,6 +27,8 @@ class MenuBar:
         bar.add_cascade(label="Go", menu=self._go_menu(bar))
         if a.translator.available:  # the Translate menu only exists once the plugin is there
             bar.add_cascade(label="Translate", menu=self._translate_menu(bar))
+        if a.bubble_reader.available:  # likewise the Read Aloud menu and the Bubble Reader
+            bar.add_cascade(label="Read Aloud", menu=self._read_menu(bar))
         bar.add_cascade(label="Plugins", menu=self._plugins_menu(bar))
         a.config(menu=bar)
 
@@ -170,6 +173,18 @@ class MenuBar:
         t.add_separator()
         t.add_command(label="Translation Settings…", command=lambda: TranslationSettingsDialog(a))
         return t
+
+    def _read_menu(self, bar):
+        a = self.app
+        r = tk.Menu(bar, tearoff=0)
+        self._cmd(r, "read_aloud", "Read Aloud / Pause")
+        self._cmd(r, "read_next", "Next Bubble")
+        self._cmd(r, "read_prev", "Previous Bubble")
+        self._cmd(r, "read_stop", "Stop")
+        r.add_separator()
+        r.add_command(label="Find This Page's Bubbles Again", command=a.bubble_reader.reread_page)
+        r.add_command(label="Bubble Reader Settings…", command=lambda: BubbleReaderSettingsDialog(a))
+        return r
 
     def _plugins_menu(self, bar):
         p = tk.Menu(bar, tearoff=0)

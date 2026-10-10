@@ -67,6 +67,8 @@ class MouseController:
             return
         dx, dy = event.x - self._press[0], event.y - self._press[1]
         if abs(dx) + abs(dy) < self.CLICK_SLOP:  # a click: left/right edges turn the page
+            if a.bubble_reader.on_click(event.x, event.y):
+                return  # reading aloud: a click on a bubble reads from there
             w = a.canvas.winfo_width()
             if event.x > w * (1 - self.EDGE):
                 a.go_right()

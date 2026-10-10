@@ -11,7 +11,7 @@ Modes: "auto" (as above), "lama" (as above, the reader makes sure LaMa is downlo
 import numpy as np
 from PIL import Image, ImageFilter
 
-from .detector import TextBlock, providers
+from plugins.common.detector import TextBlock, providers
 
 try:
     import cv2

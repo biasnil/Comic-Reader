@@ -2,7 +2,8 @@
 rem Build Comic Reader into a Windows executable (recipe: ComicReader.spec).
 rem   build.bat            folder build -> dist\ComicReader\ComicReader.exe   (recommended)
 rem   build.bat onefile    single file  -> dist\ComicReader.exe               (slower to start)
-rem   build.bat plugin     Manga Translator plugin -> dist\manga-translator\manga-translator-worker.exe
+rem   build.bat plugin     both plugins -> dist\manga-translator\manga-translator-worker.exe
+rem                                       dist\bubble-reader\bubble-reader-worker.exe
 rem   build.bat installer  reader + plugin + setup.exe -> dist\ComicReader-Setup-<version>.exe
 rem                        (needs Inno Setup 6: https://jrsoftware.org/isinfo.php)
 rem Double-clicking it does the folder build.
@@ -33,6 +34,8 @@ if /i not "%TARGET%"=="installer" goto :done
 rem the plugin's packages go in after the reader is built, so the reader exe doesn't pick them up
 "%PY%" -m pip install -r plugins\manga_translator\requirements.txt || goto :error
 "%PY%" -m PyInstaller --noconfirm --clean plugins\manga_translator\MangaTranslator.spec || goto :error
+"%PY%" -m pip install -r plugins\bubble_reader\requirements.txt || goto :error
+"%PY%" -m PyInstaller --noconfirm --clean plugins\bubble_reader\BubbleReader.spec || goto :error
 if /i not "%TARGET%"=="installer" goto :done
 
 set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
@@ -45,7 +48,7 @@ if not exist "%ISCC%" (
 
 :done
 echo.
-if /i "%TARGET%"=="plugin" (echo Done: dist\manga-translator\manga-translator-worker.exe) else if /i "%TARGET%"=="installer" (echo Done: dist\ComicReader-Setup-%VERSION%.exe) else if defined COMICREADER_ONEFILE (echo Done: dist\ComicReader.exe) else (echo Done: dist\ComicReader\ComicReader.exe)
+if /i "%TARGET%"=="plugin" (echo Done: dist\manga-translator\ and dist\bubble-reader\) else if /i "%TARGET%"=="installer" (echo Done: dist\ComicReader-Setup-%VERSION%.exe) else if defined COMICREADER_ONEFILE (echo Done: dist\ComicReader.exe) else (echo Done: dist\ComicReader\ComicReader.exe)
 pause
 exit /b 0
 

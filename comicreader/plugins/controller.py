@@ -24,6 +24,7 @@ from PIL import Image
 from ..constants import APP_NAME
 from ..core.export import ExportCancelled, export_cbz
 from ..core.translation import DEFAULT_SETTINGS, PROTOCOL, TranslationCache, comic_signature
+from ..core.plugins import TRANSLATOR
 from .client import WorkerClient
 
 
@@ -35,7 +36,7 @@ class TranslatorController:
         stored = app.store.settings.get("translator", {})
         self.settings = {**DEFAULT_SETTINGS, **(stored if isinstance(stored, dict) else {})}
         self.enabled = tk.BooleanVar(value=False)  # always starts off: starting the worker is slow
-        self.client = WorkerClient()
+        self.client = WorkerClient(TRANSLATOR)
         self.state = "off"        # off | starting | configuring | downloading | ready
         self.stage = ""           # what the worker is doing right now (for the status bar)
         self.cache: TranslationCache | None = None
@@ -52,7 +53,7 @@ class TranslatorController:
 
     @property
     def available(self) -> bool:
-        return WorkerClient.available()
+        return self.client.available()
 
     # ------------------------------------------------------------------------------------ #
     # The choke point
@@ -251,7 +252,7 @@ class TranslatorController:
                 APP_NAME, "Page translation needs the Manga Translator plugin, which isn't "
                 "installed.\n\nOpen Plugins > Manage to install it?", parent=self.app):
             from .dialogs import PluginManagerDialog
-            PluginManagerDialog(self.app)
+            PluginManagerDialog(self.app, TRANSLATOR)
         return False
 
     # ---- export ------------------------------------------------------------------------- #
@@ -426,7 +427,7 @@ class TranslatorController:
             if self.state != "off":
                 self.client.stop()
                 self._fail(f"The translator stopped unexpectedly. Details are in:\n"
-                           f"{WorkerClient.log_path()}")
+                           f"{self.client.log_path()}")
 
     def _finished(self, msg: dict, ok: bool):
         """A translate or retypeset job ended (done or error)."""

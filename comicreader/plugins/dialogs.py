@@ -1,11 +1,14 @@
-"""Dialogs for the Manga Translator plugin: settings, background-job progress and Plugins > Manage."""
+"""Plugin dialogs: translation and Bubble Reader settings, background-job progress, Plugins > Manage."""
 import queue
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from ..constants import APP_NAME
-from ..core.translation import DEFAULT_SETTINGS, PLUGIN_DIR
+from ..core.bubbles import DEFAULT_SETTINGS as BUBBLE_DEFAULTS
+from ..core.bubbles import ENGLISH_VOICES, JAPANESE_VOICES
+from ..core.plugins import ALL, PluginSpec
+from ..core.translation import DEFAULT_SETTINGS
 from ..utils.helpers import human_size, reveal_in_folder
 from . import installer
 from .client import WorkerClient
@@ -203,22 +206,37 @@ class ProgressWindow(_Dialog):
 
 # ---- plugin manager ---------------------------------------------------------------- #
 class PluginManagerDialog(_Dialog):
-    """Install, update or remove the Manga Translator plugin from GitHub Releases."""
+    """Plugins > Manage: every plugin with Install / Update / Remove (from GitHub Releases)."""
 
-    def __init__(self, app):
+    def __init__(self, app, focus: PluginSpec | None = None):
         super().__init__(app, "Plugins")
+        self.panels = [PluginPanel(self, app, spec) for spec in ALL]
+        for panel in self.panels:
+            panel.pack(fill="x", pady=(0, 10))
+        if focus is not None:
+            next(p for p in self.panels if p.spec is focus).focus_highlight()
+        ttk.Button(self.body, text="Close", command=self.destroy).pack(side="right")
+        if not installer.supported():
+            ttk.Label(self.body, foreground="#888888", wraplength=440, justify="left", text=(
+                "Released plugin builds are for Windows. From source, install each plugin's "
+                "requirements.txt (plugins/<name>/) instead.")).pack(side="left")
+
+
+class PluginPanel(ttk.LabelFrame):
+    """One plugin: its state, the latest release, and the buttons."""
+
+    def __init__(self, dialog: PluginManagerDialog, app, spec: PluginSpec):
+        super().__init__(dialog.body, text=spec.name, padding=10)
+        self.app, self.spec = app, spec
         self.release: dict | None = None
         self._q: queue.Queue = queue.Queue()
         self._busy = False
-        b = self.body
-        ttk.Label(b, text="Manga Translator", font=("Segoe UI", 12, "bold")).pack(anchor="w")
-        ttk.Label(b, text="Translates Japanese manga pages into English while you read "
-                  "(key T).", wraplength=420).pack(anchor="w", pady=(2, 8))
+        ttk.Label(self, text=spec.description, wraplength=440).pack(anchor="w", pady=(0, 6))
         self.status = tk.StringVar()
-        ttk.Label(b, textvariable=self.status, wraplength=420, justify="left").pack(anchor="w")
-        self.bar = ttk.Progressbar(b, length=420, mode="determinate")
-        self.bar.pack(fill="x", pady=8)
-        row = ttk.Frame(b)
+        ttk.Label(self, textvariable=self.status, wraplength=440, justify="left").pack(anchor="w")
+        self.bar = ttk.Progressbar(self, length=440, mode="determinate")
+        self.bar.pack(fill="x", pady=6)
+        row = ttk.Frame(self)
         row.pack(fill="x")
         self.check_btn = ttk.Button(row, text="Check for updates", command=self.check)
         self.check_btn.pack(side="left")
@@ -227,15 +245,20 @@ class PluginManagerDialog(_Dialog):
         self.remove_btn = ttk.Button(row, text="Remove", command=self.remove)
         self.remove_btn.pack(side="left")
         ttk.Button(row, text="Open folder", command=self.open_folder).pack(side="left", padx=6)
-        ttk.Button(row, text="Close", command=self.destroy).pack(side="right")
         self.refresh()
         if installer.supported():
             self.check()
 
+    def focus_highlight(self):
+        self.configure(text=f"{self.spec.name}  (needed for this)")
+
+    def _controller(self):
+        return self.app.plugin_controllers.get(self.spec.id)
+
     # ---- state ---- #
     def refresh(self, extra: str = ""):
-        ver = installer.installed_version()
-        if WorkerClient.available() and ver is None:
+        ver = installer.installed_version(self.spec)
+        if WorkerClient(self.spec).available() and ver is None:
             text = "Available (running from source, or installed with the reader)."
         elif ver:
             text = f"Installed: version {ver}."
@@ -243,9 +266,6 @@ class PluginManagerDialog(_Dialog):
             text = "Not installed."
         if self.release:
             text += f"\nLatest release: {self.release['tag']} ({human_size(self.release['size'])})."
-        if not installer.supported():
-            text += ("\nReleased plugin builds are for Windows. From source, install "
-                     "plugins/manga_translator/requirements.txt instead.")
         self.status.set(text + (f"\n{extra}" if extra else ""))
         newer = self.release and self.release["version"] != ver
         self.install_btn.configure(
@@ -294,31 +314,124 @@ class PluginManagerDialog(_Dialog):
                 self.release = result
                 self.refresh()
         self.status.set("Checking GitHub…")
-        self._run(lambda progress: installer.latest_release(), done)
+        self._run(lambda progress: installer.latest_release(self.spec), done)
 
     def install(self):
         if not self.release:
             return
-        self.app.translator.shutdown()  # Windows can't replace a running exe
+        ctl = self._controller()
+        if ctl is not None:
+            ctl.shutdown()  # Windows can't replace a running exe
 
         def done(result):
             self.bar.configure(value=0)
             if isinstance(result, Exception):
                 self.refresh(f"Install failed: {result}")
             else:
-                self.refresh("Installed. Press T while reading to translate pages.")
+                self.refresh("Installed.")
                 self.app.menubar.build()
-        self._run(lambda progress: installer.install(self.release, progress), done)
+        self._run(lambda progress: installer.install(self.spec, self.release, progress), done)
 
     def remove(self):
-        if not messagebox.askyesno(APP_NAME, "Remove the Manga Translator plugin?\n\nSaved "
-                                   "translations and downloaded models are kept.", parent=self):
+        if not messagebox.askyesno(APP_NAME, f"Remove the {self.spec.name} plugin?\n\nDownloaded "
+                                   "models and saved results are kept.", parent=self):
             return
-        self.app.translator.shutdown()
-        installer.remove()
+        ctl = self._controller()
+        if ctl is not None:
+            ctl.shutdown()
+        installer.remove(self.spec)
         self.app.menubar.build()
         self.refresh("Removed.")
 
     def open_folder(self):
-        PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
-        reveal_in_folder(str(PLUGIN_DIR))
+        self.spec.dir.mkdir(parents=True, exist_ok=True)
+        reveal_in_folder(str(self.spec.dir))
+
+
+# ---- Bubble Reader settings ----------------------------------------------------------- #
+class BubbleReaderSettingsDialog(_Dialog):
+    LANGUAGES = {"Automatic (manga = Japanese, otherwise English)": "auto",
+                 "Japanese": "ja", "English": "en"}
+
+    def __init__(self, app):
+        super().__init__(app, "Bubble Reader Settings")
+        s = {**BUBBLE_DEFAULTS, **app.bubble_reader.settings}
+        self.vars = {
+            "voice_en": tk.StringVar(value=ENGLISH_VOICES.get(s["voice_en"], s["voice_en"])),
+            "voice_ja": tk.StringVar(value=JAPANESE_VOICES.get(s["voice_ja"], s["voice_ja"])),
+            "speed": tk.DoubleVar(value=float(s["speed"])),
+            "volume": tk.IntVar(value=int(s["volume"])),
+            "language": tk.StringVar(value=next((k for k, v in self.LANGUAGES.items()
+                                                 if v == s["language"]), next(iter(self.LANGUAGES)))),
+            "read_translated": tk.BooleanVar(value=bool(s["read_translated"])),
+            "skip_sfx": tk.BooleanVar(value=bool(s["skip_sfx"])),
+            "auto_turn": tk.BooleanVar(value=bool(s["auto_turn"])),
+            "follow": tk.BooleanVar(value=bool(s["follow"])),
+            "gpu": tk.BooleanVar(value=bool(s["gpu"])),
+        }
+        b, row = self.body, 0
+
+        def line(label, widget):
+            nonlocal row
+            ttk.Label(b, text=label).grid(row=row, column=0, sticky="w", pady=3, padx=(0, 8))
+            widget.grid(row=row, column=1, sticky="ew", pady=3)
+            row += 1
+            return widget
+
+        def check(text, var):
+            nonlocal row
+            ttk.Checkbutton(b, text=text, variable=var).grid(row=row, column=1, sticky="w", pady=2)
+            row += 1
+
+        line("English voice:", ttk.Combobox(b, textvariable=self.vars["voice_en"], state="readonly",
+                                            values=list(ENGLISH_VOICES.values()), width=36))
+        line("Japanese voice:", ttk.Combobox(b, textvariable=self.vars["voice_ja"], state="readonly",
+                                             values=list(JAPANESE_VOICES.values())))
+        self.speed_label = tk.StringVar()
+        speed = ttk.Frame(b)
+        ttk.Scale(speed, from_=0.5, to=2.0, variable=self.vars["speed"], command=self._show,
+                  length=220).pack(side="left")
+        ttk.Label(speed, textvariable=self.speed_label, width=6).pack(side="left", padx=6)
+        line("Speed:", speed)
+        self.volume_label = tk.StringVar()
+        vol = ttk.Frame(b)
+        ttk.Scale(vol, from_=0, to=100, variable=self.vars["volume"], command=self._show,
+                  length=220).pack(side="left")
+        ttk.Label(vol, textvariable=self.volume_label, width=6).pack(side="left", padx=6)
+        line("Volume:", vol)
+        line("Comic language:", ttk.Combobox(b, textvariable=self.vars["language"], state="readonly",
+                                             values=list(self.LANGUAGES)))
+        check("Read translated pages in English (Manga Translator)", self.vars["read_translated"])
+        check("Skip sound effects drawn over the art", self.vars["skip_sfx"])
+        check("Turn the page after the last bubble", self.vars["auto_turn"])
+        check("Scroll to the bubble being read", self.vars["follow"])
+        check("Use the GPU when available", self.vars["gpu"])
+        ttk.Label(b, foreground="#888888", wraplength=420, justify="left", text=(
+            "Keys while reading: P play / pause, . next bubble, , previous bubble, Shift+P stop. "
+            "Click a bubble to read from there.")).grid(row=row, column=0, columnspan=2,
+                                                         sticky="w", pady=(6, 0))
+        row += 1
+        btns = ttk.Frame(b)
+        btns.grid(row=row, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        ttk.Button(btns, text="Save", command=self.save).pack(side="right")
+        ttk.Button(btns, text="Cancel", command=self.destroy).pack(side="right", padx=6)
+        b.columnconfigure(1, weight=1)
+        self._show()
+
+    def _show(self, *_):
+        self.speed_label.set(f"{self.vars['speed'].get():.1f}x")
+        self.volume_label.set(f"{int(float(self.vars['volume'].get()))}%")
+
+    def save(self):
+        v = self.vars
+        by_label = lambda table, label: next((k for k, name in table.items() if name == label), label)  # noqa: E731
+        settings = {
+            "voice_en": by_label(ENGLISH_VOICES, v["voice_en"].get()),
+            "voice_ja": by_label(JAPANESE_VOICES, v["voice_ja"].get()),
+            "speed": round(float(v["speed"].get()), 2),
+            "volume": int(float(v["volume"].get())),
+            "language": self.LANGUAGES[v["language"].get()],
+            **{k: bool(v[k].get()) for k in ("read_translated", "skip_sfx", "auto_turn", "follow", "gpu")},
+        }
+        self.app.bubble_reader.apply_settings(settings)
+        self.destroy()

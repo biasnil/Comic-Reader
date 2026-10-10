@@ -14,6 +14,7 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 datas = [(os.path.join(HERE, "assets"), "plugins/manga_translator/assets")]   # the font
 binaries, hiddenimports = [], []
 hiddenimports += collect_submodules("plugins.manga_translator")
+hiddenimports += collect_submodules("plugins.common")
 hiddenimports += collect_submodules("comicreader.core")
 
 # packages with native files or dynamic imports; each one is optional

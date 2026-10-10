@@ -10,6 +10,9 @@ The optional **Manga Translator** plugin translates Japanese manga pages into En
 (Koharu-style: detect the text, read it, erase it and draw the English in the bubble). See
 [Manga Translator plugin](#manga-translator-plugin).
 
+The optional **Bubble Reader** plugin reads the speech bubbles aloud in reading order with natural voices,
+highlighting each one as it's read. See [Bubble Reader plugin](#bubble-reader-plugin).
+
 ## Quick start
 
 ```powershell
@@ -84,6 +87,8 @@ UI scale up to 200%, optional auto-hiding progress bar.
 | Ctrl+I               | comic properties                              |
 | T                    | translate pages on/off (Manga Translator plugin) |
 | Ctrl+E               | edit this page's translations                 |
+| P / Shift+P          | read bubbles aloud, pause / stop (Bubble Reader plugin) |
+| . / ,                | next / previous bubble while reading aloud    |
 
 Every key can be changed under **File > Keyboard Shortcuts**.
 
@@ -173,6 +178,52 @@ original, copies LaMa, and publishes both with their SHA-256 checksums. Every do
 | `manga-ocr`                | the original OCR package (optional, large) |
 | `onnxruntime-directml`     | GPU on Windows, instead of `onnxruntime` (`onnxruntime-gpu` for NVIDIA CUDA) |
 
+## Bubble Reader plugin
+
+Reads a comic's speech bubbles **aloud**, one after another, in reading order: **right to left** for
+manga (when the reader is in right-to-left mode, which switches on by itself for manga) and **left to right**
+otherwise. The bubble being read is outlined and kept in view, and after the last bubble the page turns
+and reading carries on. It uses the same natural Kokoro voices as EchoRead, fully offline. It is a separate
+plugin from the Manga Translator: install either or both (setup.exe or **Plugins > Manage…**; from source,
+`pip install -r plugins/bubble_reader/requirements.txt`). Without it, the Read Aloud menu doesn't appear.
+
+| Key        | Read Aloud menu         |
+|------------|-------------------------|
+| P          | read aloud / pause / resume |
+| . / ,      | next / previous bubble  |
+| Shift+P    | stop                    |
+| click a bubble | read from that bubble (while reading) |
+
+**What it reads**
+
+| Page | Text comes from |
+|------|-----------------|
+| translated by the Manga Translator (Translate Pages on) | the English translation, straight away |
+| Japanese manga | manga-ocr (the local OCR model), read with a Japanese voice |
+| English comic | RapidOCR, a small English OCR built into the plugin |
+
+The plugin finds the bubbles with the same text detector as the translator (the 95 MB model is shared, not
+downloaded twice). Pages are analysed ahead while you listen, and saved, so re-reading is instant.
+
+**Settings (Read Aloud > Bubble Reader Settings…)**: English and Japanese voice (12 English, 5 Japanese),
+speed (0.5x–2x), volume, the comic's language (automatic, Japanese or English), whether translated pages are
+read in English, skipping **sound effects** (short text drawn over the art, like ドン or BAM!), turning the
+page after the last bubble, and scrolling to the bubble being read. **Find This Page's Bubbles Again**
+redoes a page (after changing the language, say).
+
+On first use it asks to download what it needs, once: the text detector (95 MB, if the translator hasn't
+already), the Japanese OCR model (about 450 MB, from this repo's `models-v1` release; only needed for
+manga) and the Kokoro voices (about 350 MB, from Kokoro's GitHub releases). Everything then runs offline.
+
+| Plugin package             | Enables                                   |
+|----------------------------|-------------------------------------------|
+| `numpy`, `onnxruntime`     | the plugin (required)                     |
+| `pykokoro[cpu]==0.10.4`    | the Kokoro voices (pinned: its API changed in 0.10) |
+| `pyopenjtalk-plus`         | Japanese pronunciation for the Japanese voices |
+| `sounddevice`              | sound output (without it, or without a sound device, it reads silently) |
+| `rapidocr-onnxruntime>=1.4`| reading English comics (Python 3.12 or older) |
+| `wordninja`                | splits words that OCR glued together      |
+
 ## Where your data lives
 
 Everything is stored in `%USERPROFILE%\.comic_reader\`:
@@ -182,8 +233,9 @@ Everything is stored in `%USERPROFILE%\.comic_reader\`:
 | `state.json`    | last page per comic, bookmarks, favourites, settings, key bindings, statistics |
 | `library.json`  | the root folders and the scanned comics                              |
 | `translations\` | per comic `<id>\`: `0007.png` translated page, `0007.clean.png` page without text (for editing), `0007.json` text and boxes |
-| `models\`       | the plugin's downloaded models (detector, LaMa, local OCR)            |
-| `plugins\`      | the plugin installed from Plugins > Manage, and its log file          |
+| `models\`       | the plugins' downloaded models (detector, LaMa, local OCR, `kokoro\` voices) |
+| `bubbles\`      | the Bubble Reader's analysed pages: `<id>\0007-ja.json` (boxes and text) |
+| `plugins\`      | plugins installed from Plugins > Manage, and their log files          |
 
 Cover thumbnails are kept separately in `%APPDATA%\ComicReader\thumbnails\` as `<id>.thumbnail`
 files (JPEG, 300x450, named from a SHA-1 of the comic's path). They are rebuilt automatically if
@@ -213,9 +265,11 @@ comicreader/
         storage.py        Store (reading state) and LibraryDB
         session.py        ComicSession, ComicQueue, PageCache, ReadingStats
         keybindings.py    KeyBindings (rebindable actions)
-        translation.py    the plugin contract: messages, translation cache, paths
+        plugins.py        the plugin registry: where each plugin's worker is, the message format
+        translation.py    the Manga Translator contract: protocol, translation cache, paths
+        bubbles.py        the Bubble Reader contract: protocol, settings, voices, bubble cache
         export.py         translated-CBZ export
-    plugins/            reader side of the plugin: worker client, controller, installer, dialogs, editor
+    plugins/            reader side of the plugins: worker client, controllers, installer, dialogs, editor
     ui/
         views.py          PagedView (single/double) and WebtoonView
         menubar.py  widgets.py  controls.py  dialogs.py  dragdrop.py  theme.py
@@ -226,10 +280,13 @@ comicreader/
     utils/
         helpers.py        small stateless helpers
 tools/export_models.py      builds the models-v1 release (manga-ocr to ONNX, LaMa); run by the Models workflow
+plugins/common/             shared by the plugins: detector.py  models.py  mangaocr.py  layout.py
 plugins/manga_translator/   the Manga Translator plugin (its own process)
-    worker.py  pipeline.py  detector.py  ocr.py  inpaint.py  translator.py  typeset.py  models.py
+    worker.py  pipeline.py  ocr.py  inpaint.py  translator.py  typeset.py
     MangaTranslator.spec  requirements.txt  assets/fonts/ (Comic Neue, OFL)
-docs/MANGA_TRANSLATOR_BRIEF.md
+plugins/bubble_reader/      the Bubble Reader plugin (its own process)
+    worker.py  analyze.py  speech.py  BubbleReader.spec  requirements.txt
+docs/MANGA_TRANSLATOR_BRIEF.md  docs/BUBBLE_READER_BRIEF.md
 ```
 
 ## Building an .exe
@@ -246,12 +303,12 @@ icon, replace that file and rebuild. CBR still needs WinRAR or 7-Zip installed o
 ### Plugin, installer and releases
 
 ```powershell
-.\build.bat plugin      # dist\manga-translator\manga-translator-worker.exe
-.\build.bat installer   # reader + plugin + dist\ComicReader-Setup-dev.exe (needs Inno Setup 6)
+.\build.bat plugin      # both plugins: dist\manga-translator\ and dist\bubble-reader\
+.\build.bat installer   # reader + plugins + dist\ComicReader-Setup-dev.exe (needs Inno Setup 6)
 ```
 
 Set `VERSION` first (`set VERSION=1.3.0`) to name the installer. The installer has Start Menu and desktop
-shortcuts, an uninstaller, an optional Manga Translator component and optional file associations. It
+shortcuts, an uninstaller, optional Manga Translator and Bubble Reader components and optional file associations. It
 never touches your data in `.comic_reader`. Unsigned builds make Windows SmartScreen ask
 "More info > Run anyway" the first time. To sign them, add a code-signing certificate as two repository
 secrets, `SIGN_PFX_BASE64` (the .pfx, base64-encoded) and `SIGN_PFX_PASSWORD`; the release workflow then
@@ -263,6 +320,7 @@ signs the exe files and `setup.exe` by itself.
 |---------------------|---------------------------------------------------------------------------|
 | `v1.3.0`            | `ComicReader-Setup-1.3.0.exe`, `ComicReader-1.3.0-win64.zip`, `MangaTranslator-plugin-win64.zip` + `.sha256` |
 | `translator-v0.2.0` | only the plugin zip + `.sha256`: an update that Plugins > Manage offers   |
+| `bubblereader-v0.1.1` | only `BubbleReader-plugin-win64.zip` + `.sha256`: likewise              |
 
 The **Models** workflow (run by hand) publishes the optional AI models as the `models-v1` release.
 
@@ -286,6 +344,12 @@ git push origin v1.3.0
   (`onnxruntime-directml` / `onnxruntime-gpu`) speeds it up. Meanwhile, Translate Whole Comic works ahead in the background.
 - **The translator stopped unexpectedly**: details are in `.comic_reader\plugins\manga-translator.log`.
 - **Translation of a password-protected PDF**: not supported (the plugin opens the comic by itself).
+- **Read Aloud is silent**: the status bar says "reading silently" when there's no sound device or
+  `sounddevice` is missing; highlighting and page turning still work.
+- **Read Aloud reads the wrong language**: set the comic's language in Bubble Reader Settings, then
+  Read Aloud > Find This Page's Bubbles Again. Manga is read in Japanese when right-to-left is on.
+- **"Japanese voices need pyopenjtalk-plus"**: `pip install pyopenjtalk-plus` (from source).
+- **Read Aloud skips some text**: sound effects are skipped by default (Bubble Reader Settings).
 - **"… isn't published yet: run the 'Models' workflow"**: the local OCR / LaMa options need the `models-v1`
   release; run Actions > Models once.
 - **Edit Translations says to retranslate first**: pages translated before plugin 0.2.0 have no saved

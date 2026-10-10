@@ -1,0 +1,9 @@
+# Bubble Reader plugin (the reader itself doesn't need any of these)
+numpy
+onnxruntime            # bubble detection and OCR; onnxruntime-directml / -gpu use the GPU
+pykokoro[cpu]==0.10.4  # Kokoro voices (the same engine as EchoRead). Pinned: its API changed in 0.10
+pyopenjtalk-plus       # Japanese pronunciation for the Japanese voices
+sounddevice            # sound output (includes PortAudio on Windows)
+rapidocr-onnxruntime>=1.4  # English OCR (PP-OCRv4 models included; 1.4 needs Python <= 3.12)
+wordninja              # splits words OCR glued together ("WHEREDOYOU")
+# manga-ocr            # optional, large (installs torch); otherwise the ONNX model downloads on first use

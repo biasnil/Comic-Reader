@@ -1,9 +1,8 @@
-"""Installing / updating / removing the Manga Translator plugin from this repo's GitHub Releases.
+"""Installing / updating / removing plugins from this repo's GitHub Releases.
 
-A plugin release carries two assets: MangaTranslator-plugin-win64.zip (the built worker folder)
-and the same name + ".sha256". The zip is checked against it and unpacked into
-DATA_DIR/plugins/manga-translator/. Nothing here touches tkinter; the dialog runs these
-functions in a worker thread.
+A release carries each plugin as two assets: <spec.asset> (the built worker folder, zipped) and
+the same name + ".sha256". The zip is checked against it and unpacked into DATA_DIR/plugins/<id>/.
+Nothing here touches tkinter; the dialog runs these functions in a worker thread.
 """
 import hashlib
 import json
@@ -14,7 +13,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from ..core.translation import GITHUB_REPO, PLUGIN_DIR, RELEASE_ASSET, WORKER_EXE
+from ..core.plugins import GITHUB_REPO, PluginSpec
 
 API = f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=30"
 HEADERS = {"User-Agent": "ComicReader", "Accept": "application/vnd.github+json"}
@@ -29,14 +28,14 @@ def supported() -> bool:
     return sys.platform == "win32"
 
 
-def installed_version() -> str | None:
+def installed_version(spec: PluginSpec) -> str | None:
     try:
-        return json.loads((PLUGIN_DIR / "plugin.json").read_text(encoding="utf-8"))["version"]
+        return json.loads((spec.dir / "plugin.json").read_text(encoding="utf-8"))["version"]
     except (OSError, ValueError, KeyError):
-        return None if not (PLUGIN_DIR / WORKER_EXE).exists() else "unknown"
+        return None if not (spec.dir / spec.exe).exists() else "unknown"
 
 
-def latest_release() -> dict:
+def latest_release(spec: PluginSpec) -> dict:
     """{'tag', 'version', 'url', 'sha_url', 'size'} of the newest release with the plugin zip."""
     req = urllib.request.Request(API, headers=HEADERS)
     try:
@@ -48,13 +47,13 @@ def latest_release() -> dict:
         if rel.get("draft"):
             continue
         assets = {a["name"]: a for a in rel.get("assets", [])}
-        if RELEASE_ASSET in assets and RELEASE_ASSET + ".sha256" in assets:
+        if spec.asset in assets and spec.asset + ".sha256" in assets:
             tag = rel["tag_name"]
             return {"tag": tag, "version": tag.rsplit("v", 1)[-1],
-                    "url": assets[RELEASE_ASSET]["browser_download_url"],
-                    "sha_url": assets[RELEASE_ASSET + ".sha256"]["browser_download_url"],
-                    "size": assets[RELEASE_ASSET]["size"]}
-    raise InstallError(f"No release of {GITHUB_REPO} contains {RELEASE_ASSET} yet")
+                    "url": assets[spec.asset]["browser_download_url"],
+                    "sha_url": assets[spec.asset + ".sha256"]["browser_download_url"],
+                    "size": assets[spec.asset]["size"]}
+    raise InstallError(f"No release of {GITHUB_REPO} contains {spec.asset} yet")
 
 
 def _fetch(url: str, dest: Path, progress=None):
@@ -69,11 +68,11 @@ def _fetch(url: str, dest: Path, progress=None):
                 progress(done, total)
 
 
-def install(release: dict, progress=None):
+def install(spec: PluginSpec, release: dict, progress=None):
     """Download, verify and unpack the plugin. progress(done_bytes, total_bytes) is optional."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        zpath, spath = tmp / RELEASE_ASSET, tmp / (RELEASE_ASSET + ".sha256")
+        zpath, spath = tmp / spec.asset, tmp / (spec.asset + ".sha256")
         try:
             _fetch(release["sha_url"], spath)
             _fetch(release["url"], zpath, progress)
@@ -94,19 +93,20 @@ def install(release: dict, progress=None):
                 if not target.is_relative_to(staging.resolve()):
                     raise InstallError(f"Unsafe path in the plugin zip: {name}")
             zf.extractall(staging)
-        if not (staging / WORKER_EXE).exists():
-            raise InstallError(f"The plugin zip has no {WORKER_EXE}")
+        if not (staging / spec.exe).exists():
+            raise InstallError(f"The plugin zip has no {spec.exe}")
         (staging / "plugin.json").write_text(
             json.dumps({"version": release["version"], "tag": release["tag"]}), encoding="utf-8")
 
-        PLUGIN_DIR.parent.mkdir(parents=True, exist_ok=True)
-        old = PLUGIN_DIR.with_name(PLUGIN_DIR.name + ".old")
+        target = spec.dir
+        target.parent.mkdir(parents=True, exist_ok=True)
+        old = target.with_name(target.name + ".old")
         shutil.rmtree(old, ignore_errors=True)
-        if PLUGIN_DIR.exists():
-            PLUGIN_DIR.rename(old)
-        shutil.move(str(staging), str(PLUGIN_DIR))
+        if target.exists():
+            target.rename(old)
+        shutil.move(str(staging), str(target))
         shutil.rmtree(old, ignore_errors=True)
 
 
-def remove():
-    shutil.rmtree(PLUGIN_DIR, ignore_errors=True)
+def remove(spec: PluginSpec):
+    shutil.rmtree(spec.dir, ignore_errors=True)

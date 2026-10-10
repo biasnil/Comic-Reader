@@ -4,8 +4,10 @@ retypeset() redraws edited translations on a page's saved clean image without ru
 """
 from PIL import Image
 
-from . import inpaint, models, ocr, typeset
-from .detector import TextBlock, TextDetector, reading_order
+from plugins.common import models
+from plugins.common.detector import TextBlock, TextDetector, reading_order
+
+from . import inpaint, ocr, typeset
 from .translator import make_backend
 
 MAX_BLOCKS = 60  # pages with more "text" than this are usually screentone noise

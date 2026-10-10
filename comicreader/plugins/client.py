@@ -1,4 +1,4 @@
-"""WorkerClient: starts the Manga Translator helper process and exchanges messages with it.
+"""WorkerClient: starts a plugin's helper process and exchanges messages with it.
 
 A reader thread turns the worker's stdout lines into messages on a queue; the UI drains that
 queue with after() (the same pattern as library/manager.py), so tkinter is only touched on the
@@ -11,18 +11,18 @@ import threading
 from pathlib import Path
 
 from ..constants import BASE_DIR
-from ..core.translation import LOG_FILE, read_message, worker_command, write_message
+from ..core.plugins import PluginSpec, read_message, worker_command, write_message
 
 
 class WorkerClient:
-    def __init__(self):
+    def __init__(self, spec: PluginSpec):
+        self.spec = spec
         self.proc: subprocess.Popen | None = None
         self.messages: "queue.Queue[dict]" = queue.Queue()
         self._log = None
 
-    @staticmethod
-    def available() -> bool:
-        return worker_command(BASE_DIR) is not None
+    def available(self) -> bool:
+        return worker_command(self.spec, BASE_DIR) is not None
 
     @property
     def running(self) -> bool:
@@ -32,12 +32,12 @@ class WorkerClient:
         """Start the worker (raises RuntimeError if the plugin isn't installed)."""
         if self.running:
             return
-        found = worker_command(BASE_DIR)
+        found = worker_command(self.spec, BASE_DIR)
         if found is None:
-            raise RuntimeError("The Manga Translator plugin isn't installed (Plugins > Manage…)")
+            raise RuntimeError(f"The {self.spec.name} plugin isn't installed (Plugins > Manage…)")
         argv, cwd = found
-        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        self._log = open(LOG_FILE, "a", encoding="utf-8", errors="replace")
+        self.spec.log_file.parent.mkdir(parents=True, exist_ok=True)
+        self._log = open(self.spec.log_file, "a", encoding="utf-8", errors="replace")
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         self.proc = subprocess.Popen(
             argv, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._log,
@@ -77,6 +77,5 @@ class WorkerClient:
             self._log.close()
             self._log = None
 
-    @staticmethod
-    def log_path() -> Path:
-        return LOG_FILE
+    def log_path(self) -> Path:
+        return self.spec.log_file
