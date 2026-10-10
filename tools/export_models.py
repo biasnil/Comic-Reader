@@ -1,7 +1,7 @@
 """Build the Manga Translator's optional models and their manifest (for the models-v1 release).
 
 Run where Hugging Face is reachable (the "Models" GitHub workflow does this):
-    pip install torch transformers onnx onnxruntime        (CPU-only torch is enough)
+    pip install torch transformers onnx onnxruntime fugashi unidic-lite   (CPU-only torch is enough)
     python tools/export_models.py out
 Writes into out/:
     manga-ocr-encoder.onnx   manga-ocr's ViT encoder:  pixel_values (1,3,224,224) -> last_hidden_state
@@ -82,6 +82,8 @@ def export_manga_ocr(out: Path):
     assert np.allclose(got_l, want_l, atol=1e-2), "decoder output differs from PyTorch"
 
     eos = getattr(model.generation_config, "eos_token_id", None) or model.config.eos_token_id
+    if isinstance(eos, (list, tuple)):   # newer transformers may store several
+        eos = eos[0] if eos else None
     cfg = {
         "source": MANGA_OCR,
         "vocab": tok.convert_ids_to_tokens(list(range(len(tok)))),
