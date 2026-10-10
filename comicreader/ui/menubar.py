@@ -3,6 +3,7 @@ import tkinter as tk
 from pathlib import Path
 
 from ..constants import CANVAS_BGS
+from ..plugins.dialogs import PluginManagerDialog, TranslationSettingsDialog
 from .dialogs import KeysDialog
 
 
@@ -23,6 +24,9 @@ class MenuBar:
         bar.add_cascade(label="File", menu=self._file_menu(bar))
         bar.add_cascade(label="View", menu=self._view_menu(bar))
         bar.add_cascade(label="Go", menu=self._go_menu(bar))
+        if a.translator.available:  # the Translate menu only exists once the plugin is there
+            bar.add_cascade(label="Translate", menu=self._translate_menu(bar))
+        bar.add_cascade(label="Plugins", menu=self._plugins_menu(bar))
         a.config(menu=bar)
 
     def _cmd(self, menu, action, label=None):
@@ -150,3 +154,24 @@ class MenuBar:
             menu.add_command(label="(none)", state="disabled")
         for p in marks:
             menu.add_command(label=f"Page {p + 1}", command=lambda p=p: a.show_page(p))
+    # ---- Translate / Plugins ------------------------------------------------------------ #
+    def _translate_menu(self, bar):
+        a = self.app
+        t = tk.Menu(bar, tearoff=0)
+        t.add_checkbutton(label="Translate Pages", accelerator=a.keys.accelerator("translate"),
+                          variable=a.translator.enabled,
+                          command=lambda: a.translator.set_enabled(a.translator.enabled.get()))
+        self._cmd(t, "translate_all", "Translate Whole Comic")
+        self._cmd(t, "translate_edit", "Edit Translations…")
+        t.add_command(label="Retranslate This Page", command=a.translator.retranslate_page)
+        t.add_separator()
+        t.add_command(label="Export Translated Comic (CBZ)…", command=a.translator.export_comic)
+        t.add_command(label="Delete This Comic's Translations…", command=a.translator.clear_comic)
+        t.add_separator()
+        t.add_command(label="Translation Settings…", command=lambda: TranslationSettingsDialog(a))
+        return t
+
+    def _plugins_menu(self, bar):
+        p = tk.Menu(bar, tearoff=0)
+        p.add_command(label="Manage…", command=lambda: PluginManagerDialog(self.app))
+        return p

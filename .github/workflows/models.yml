@@ -1,0 +1,42 @@
+# Publishes the Manga Translator's optional models as the "models-v1" release:
+#   manga-ocr exported to ONNX (local Japanese OCR without PyTorch), LaMa inpainting (ONNX),
+#   and models.json (their SHA-256s, which the plugin checks downloads against).
+# Run it once from the Actions tab ("Models" > Run workflow), and again only if the models change.
+# The plugin downloads these files on first use when the settings need them.
+
+name: Models
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install export tools (CPU PyTorch)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers onnx onnxruntime numpy pillow
+
+      - name: Export and check the models
+        run: python tools/export_models.py out
+
+      - name: Publish the models-v1 release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: models-v1
+          name: Manga Translator models (v1)
+          body: |
+            Optional models for the Manga Translator plugin, downloaded by the plugin on first use.
+            manga-ocr (kha-white/manga-ocr-base, Apache-2.0) exported to ONNX; LaMa inpainting
+            (Carve/LaMa-ONNX, Apache-2.0). models.json lists their SHA-256 checksums.
+          files: out/*

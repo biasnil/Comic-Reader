@@ -3,3 +3,4 @@ pymupdf         # PDF
 rarfile         # CBR/RAR (also needs WinRAR or 7-Zip installed)
 py7zr           # CB7/7z
 tkinterdnd2     # drag & drop
+# The Manga Translator plugin has its own list: plugins/manga_translator/requirements.txt

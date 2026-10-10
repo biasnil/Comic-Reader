@@ -8,7 +8,7 @@ Install:  pip install pillow pymupdf rarfile py7zr tkinterdnd2
 
 Layout:
     main.py                  <- you are here
-    assets/                  icon.ico (exe + window icon), icon.png
+    Icon/assets/             icon.ico (exe + window icon), icon.png
     comicreader/
         app.py               main window (ComicReader)
         constants.py         file types, storage paths, themes

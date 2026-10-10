@@ -3,24 +3,24 @@
 #
 #   folder build (default):  dist\ComicReader\ComicReader.exe
 #   single file:             set COMICREADER_ONEFILE=1 first (build.bat onefile does this)
-#   icon / assets:           the whole assets\ folder is bundled; assets\icon.ico is the exe icon
+#   icon / assets:           the whole Icon\assets\ folder is bundled; Icon\assets\icon.ico is the exe icon
 
 import os
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 ONEFILE = os.environ.get("COMICREADER_ONEFILE") == "1"
 
-ASSETS = os.path.join(SPECPATH, "assets")          # SPECPATH = folder containing this spec
+ASSETS = os.path.join(SPECPATH, "Icon", "assets")  # SPECPATH = folder containing this spec
 _ico = os.path.join(ASSETS, "icon.ico")
 ICON = _ico if os.path.exists(_ico) else None
 
 datas, binaries, hiddenimports = [], [], []
 
-# bundle assets\ so the running exe can find them (used for the window icon)
+# bundle Icon\assets\ so the running exe can find them (used for the window icon)
 if os.path.isdir(ASSETS):
-    datas.append((ASSETS, "assets"))
+    datas.append((ASSETS, os.path.join("Icon", "assets")))
 else:
-    print("[spec] no assets folder found: building without an icon")
+    print("[spec] no Icon\\assets folder found: building without an icon")
 
 # packages that ship native files or load things dynamically; each one is optional
 for pkg in ("tkinterdnd2",   # native tkdnd library used for drag & drop
