@@ -14,12 +14,13 @@ The exported OCR is checked against the PyTorch model before anything is written
 import hashlib
 import inspect
 import json
+import os
 import shutil
 import sys
 import urllib.request
 from pathlib import Path
 
-MANGA_OCR = "kha-white/manga-ocr-base"
+MANGA_OCR = os.environ.get("MANGA_OCR_MODEL", "kha-white/manga-ocr-base")  # env: test with a local model
 LAMA_URL = "https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx"
 OPSET = 17
 
@@ -58,33 +59,47 @@ def export_manga_ocr(out: Path):
     size = image_side(proc.size)
     extra = {"dynamo": False} if "dynamo" in inspect.signature(torch.onnx.export).parameters else {}
 
+    model.requires_grad_(False)   # inference only: the exporter can't trace weights that track gradients
+
+    # the wrappers own the model (as a submodule), so its weights export as weights
     class Encoder(torch.nn.Module):
+        def __init__(self, m):
+            super().__init__()
+            self.m = m
+
         def forward(self, pixel_values):
-            h = model.encoder(pixel_values=pixel_values).last_hidden_state
-            if getattr(model, "enc_to_dec_proj", None) is not None:
-                h = model.enc_to_dec_proj(h)   # only when encoder/decoder widths differ
+            h = self.m.encoder(pixel_values=pixel_values).last_hidden_state
+            if getattr(self.m, "enc_to_dec_proj", None) is not None:
+                h = self.m.enc_to_dec_proj(h)   # only when encoder/decoder widths differ
             return h
 
     class Decoder(torch.nn.Module):
+        def __init__(self, m):
+            super().__init__()
+            self.m = m
+
         def forward(self, input_ids, encoder_hidden_states):
-            return model.decoder(input_ids=input_ids, encoder_hidden_states=encoder_hidden_states).logits
+            return self.m.decoder(input_ids=input_ids, encoder_hidden_states=encoder_hidden_states).logits
+
+    encoder, decoder = Encoder(model).eval(), Decoder(model).eval()
 
     pixels = torch.randn(1, 3, size, size)
     with torch.no_grad():
-        hidden = Encoder()(pixels)
-        ids = torch.tensor([[model.config.decoder_start_token_id or tok.cls_token_id, 10, 20]])
-        torch.onnx.export(Encoder(), (pixels,), out / "manga-ocr-encoder.onnx",
+        hidden = encoder(pixels)
+        vocab = model.decoder.config.vocab_size   # sample tokens that exist in any vocabulary
+        ids = torch.tensor([[model.config.decoder_start_token_id or tok.cls_token_id, 10 % vocab, 20 % vocab]])
+        torch.onnx.export(encoder, (pixels,), out / "manga-ocr-encoder.onnx",
                           input_names=["pixel_values"], output_names=["last_hidden_state"],
                           dynamic_axes={"pixel_values": {0: "batch"}, "last_hidden_state": {0: "batch"}},
                           opset_version=OPSET, **extra)
-        torch.onnx.export(Decoder(), (ids, hidden), out / "manga-ocr-decoder.onnx",
+        torch.onnx.export(decoder, (ids, hidden), out / "manga-ocr-decoder.onnx",
                           input_names=["input_ids", "encoder_hidden_states"], output_names=["logits"],
                           dynamic_axes={"input_ids": {0: "batch", 1: "seq"},
                                         "encoder_hidden_states": {0: "batch", 1: "enc_seq"},
                                         "logits": {0: "batch", 1: "seq"}},
                           opset_version=OPSET, **extra)
         want_h = hidden.numpy()
-        want_l = Decoder()(ids, hidden).numpy()
+        want_l = decoder(ids, hidden).numpy()
 
     # the ONNX graphs must give the same numbers as PyTorch
     enc = ort.InferenceSession(str(out / "manga-ocr-encoder.onnx"), providers=["CPUExecutionProvider"])
