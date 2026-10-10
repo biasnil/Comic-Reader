@@ -16,16 +16,17 @@ jobs:
   export:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install export tools (CPU PyTorch)
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install transformers onnx onnxruntime numpy pillow
+          # fugashi + unidic-lite: manga-ocr's Japanese tokenizer needs them to load
+          pip install transformers onnx onnxruntime numpy pillow fugashi unidic-lite
 
       - name: Export and check the models
         run: python tools/export_models.py out
